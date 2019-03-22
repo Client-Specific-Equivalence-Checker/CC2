@@ -1,45 +1,47 @@
-int ret_new = 0;
-int ret_old = 0;
+
 # define NUMPRIMES 8
 static const unsigned int primes[8] = {
         2,     3,     5,     7,    11,    13,    17,    19};
 
-struct RTuple{
-    int ret_old;
-    int ret_new; 
-};
-
-struct RTuple lib(unsigned int x, int b) {
-  struct RTuple r;
-  if (b == 0) {
-    r.ret_new = 0;
-    r.ret_old = 0;
-    return r;
-  }
-  else{
-    for (int i = 0; i < NUMPRIMES; i++) {
-      int mod = x % primes[i];
-      if (mod == 0)
-        r.ret_new = primes[i];
-        r.ret_old = 0;
-        return r;
-    }
-  }
-  r.ret_new = 1;
-  r.ret_old = 1;
-  return r;
-}
 
 
 
 int client(unsigned int x){
+  int ret_new = 0;
+  int ret_old = 0;
   if (x < 19) {
-    struct RTuple r = lib(20, 1);
-    __CPROVER_assert( (r.ret_new == r.ret_old),  "VC");
+    int x = 20;
+    int b = 1;
+    if (b == 0) {
+    ret_new = 0;
+    ret_old = 0;
+    }
+    else{
+        for (int i = 0; i < NUMPRIMES; i++) {
+        int mod = x % primes[i];
+        if (mod == 0)
+            ret_new = primes[i];
+            ret_old = 0;
+            __CPROVER_assert( (ret_new == ret_old),  "VC1");
+        }
+    }
     return 0;
   }
-  struct RTuple r = lib(x,1);
-   __CPROVER_assert( (r.ret_new == r.ret_old),  "VC");
+  int x = x;
+  int b = 1;
+  if (b == 0) {
+    ret_new = 0;
+    ret_old = 0;
+    }
+    else{
+        for (int i = 0; i < NUMPRIMES; i++) {
+        int mod = x % primes[i];
+        if (mod == 0)
+            ret_new = primes[i];
+            ret_old = 0;
+            __CPROVER_assert( (ret_new == ret_old),  "VC1");
+        }
+    }
   return 0;
 }
 

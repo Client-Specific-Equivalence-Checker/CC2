@@ -1,7 +1,11 @@
-int ret_new = 0;
-int ret_old = 0;
 
-int lib(int x) {
+
+
+
+
+int client(int x){
+  int ret_new = 0;
+  int ret_old = 0;
   if (x <= 0 )
      return ret_new = -1;
   else
@@ -12,13 +16,7 @@ int lib(int x) {
     ret_old = -1;
   else
     ret_old = 1;
-  
-}
-
-
-int client(int x){
-    lib(x);
-    assert(ret_old == ret_new);
+    __CPROVER_assert(ret_old == ret_new, "vc");
 }
 
 int main() {
