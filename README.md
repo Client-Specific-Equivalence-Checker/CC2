@@ -20,4 +20,6 @@ CLEVER V2
 - Document any decisions you make here!
 - Name the return of the old and new versions as ```ret1``` and ```ret2``` respectively.
 - Inline into a single function called ```main```
+    - Or use global variables for returns? Will this restrict us to functional equivalence?
 - When duplicating variables add the suffix ```1``` and ```2``` for old and new version respectively
+- Insert assertions as comments
