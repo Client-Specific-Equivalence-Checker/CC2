@@ -6,8 +6,6 @@ struct RTuple{
 
 struct RTuple lib(int n){
     struct RTuple r;
-    int return_old;
-    int return_new;
     if(n <= 0){
         r.ret_old = 0;
         r.ret_new = 1;
