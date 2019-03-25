@@ -34,7 +34,7 @@ int main() {
             ret2 = x2;
         }
         
-        //assert(((ret1 / 5) -1) == ((ret2 /5)-1));
+        assert(((ret1 / 5) -1) == ((ret2 /5)-1));
 	}
     
 }
