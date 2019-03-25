@@ -1,7 +1,3 @@
-
-
-
-
 int main(int x, char*argv[]) {
 	if (x>=85 && x<115){
         int ret_new = 0;
