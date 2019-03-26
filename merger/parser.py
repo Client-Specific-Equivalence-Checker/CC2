@@ -191,8 +191,12 @@ def merge(old, new, well_formed = True):
         merged_while =  c_ast.While(cond= disjunct_while_cond, stmt= loop_body)
         return merged_while
 
-    #case 7 merge do while loops
-    #elif isinstance(new, c_ast.DoWhile) and isinstance(old, c_ast.DoWhile):
+    #case 7 merge if conditions
+    elif isinstance(new, c_ast.If) and isinstance(old, c_ast.If):
+        #if with exactly same branching conditions. If prior difference has been detected,
+        #conditional var will be renamed.
+        if (str(new.cond) == str(old.cond)):
+            return c_ast.If(cond=new.cond, iftrue= merge(old.iftrue, new.iftrue ), iffalse=merge(old.iffalse, new.iffalse))
 
 
     if (well_formed):
