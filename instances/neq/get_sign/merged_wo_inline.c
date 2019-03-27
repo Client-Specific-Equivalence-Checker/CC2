@@ -1,6 +1,6 @@
 struct RTuple{
     int ret_old;
-    int ret_new; 
+    int ret_new;
 };
 
 struct RTuple lib(int x) {
