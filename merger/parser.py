@@ -2,6 +2,10 @@ import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast
 
+impacted = False
+old_touched = set()
+new_touched = set()
+touched = set()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -27,6 +31,55 @@ class FuncDefVisitor(c_ast.NodeVisitor):
         if (self.container is None and node.decl.name == self.target):
             self.container = node
             return
+'''
+Version and Rename touched variables
+'''
+class IDRenameVisitor(c_ast.NodeVisitor):
+    def __init__(self, version, targets):
+        self.version = version
+        self.targets = targets
+
+    def visit_ID(self, node):
+        if isinstance(node, c_ast.ID):
+            if not node.name.endswith("_"+self.version)and node.name in self.targets:
+                node.name = (node.name+"_"+ self.version)
+
+    def visit_Decl(self, node):
+        if isinstance(node, c_ast.Decl):
+            if not node.name.endswith("_" + self.version) and node.name in self.targets:
+                node.name = (node.name + "_" + self.version)
+            if isinstance(node.type, c_ast.TypeDecl):
+                if not node.type.declname.endswith("_"+self.version)and node.type.declname in self.targets:
+                    node.type.declname = (node.type.declname+"_"+ self.version)
+
+
+'''
+Data flow analysis on AST to determine 
+touched variables.
+'''
+class DataModVisitor(c_ast.NodeVisitor):
+    def __init__(self):
+        self.define = set()
+        self.use = set()
+
+    def visit_Assignment(self, node):
+        if isinstance(node, c_ast.Assignment):
+            if isinstance(node.lvalue , c_ast.ID):
+                self.define.add(node.lvalue.name)
+            if isinstance(node.rvalue , c_ast.ID):
+                self.use.add(node.rvalue.name)
+
+    def visit_UnaryOp(self, node):
+        if isinstance(node, c_ast.UnaryOp):
+            if isinstance(node.expr, c_ast.ID):
+                self.define.add(node.expr.name)
+
+    def visit_Decl(self, node):
+        if isinstance(node, c_ast.Decl):
+            if isinstance(node.type, c_ast.TypeDecl):
+                self.define.add(node.type.declname)
+            if isinstance(node.init , c_ast.ID):
+                self.use.add(node.init.name)
 
 
 class ReturnHuntVisitor(c_ast.NodeVisitor):
@@ -37,9 +90,14 @@ class ReturnHuntVisitor(c_ast.NodeVisitor):
         self.return_name = return_name
 
     def visit_Return(self, node, parent, index=0):
+        assignment = c_ast.Assignment(lvalue=c_ast.ID(self.return_name), rvalue=node.expr, op="=")
         if isinstance(parent, c_ast.Compound):
-            assignment = c_ast.Assignment(lvalue=c_ast.ID(self.return_name), rvalue=node.expr, op="=")
             parent.block_items[index] = assignment
+        elif isinstance(parent, c_ast.If):
+            if (index == 1):
+                parent.iftrue = assignment
+            elif (index == 2):
+                parent.iffalse = assignment
 
     def visit(self, node, parent, index=0):
         """ Visit a node.
@@ -100,7 +158,41 @@ def add_nodes (node_list, new_node):
     else:
         node_list.append(new_node)
 
+def mark_touched_variables(old, new):
+    global impacted
+    global old_touched
+    global new_touched
+    global touched
+    dv_old = DataModVisitor()
+    dv_old.visit(old);
+    old_touched = old_touched.union(dv_old.define)
+    dv_new = DataModVisitor()
+    dv_new.visit(new);
+    new_touched = new_touched.union(dv_new.define)
+
+    # now look at the use set. use set is considered if it has an intesection with define set.
+    old_touched = old_touched.union(dv_old.use.intersection(new_touched))
+    new_touched = new_touched.union(dv_new.use.intersection(old_touched))
+
+    new_int = old_touched.intersection(new_touched)
+    set_of_interest = new_int.difference(touched)
+    touched = new_int
+    return set_of_interest;
+
+def rename_ID(old, new, touched_set):
+    if (len(touched_set) > 0):
+        renamer = IDRenameVisitor("", list(touched_set))
+        if (old is not None):
+            renamer.version = "old"
+            renamer.visit(old)
+        if (new is not None):
+            renamer.version = "new"
+            renamer.visit(new)
+
+
 def merge(old, new, well_formed = True):
+    global touched
+    rename_ID(old, new, touched)
     #case 1, new and old are syntactically identical
     if (str(new) == str(old)):
         return new
@@ -160,6 +252,12 @@ def merge(old, new, well_formed = True):
 
     #case 4, if the two nodes disagree in types
     elif type(new) != type(old):
+        touched_set = mark_touched_variables(old, new)
+        if (len(touched_set) > 0):
+            renamer = IDRenameVisitor("old", list(touched_set))
+            renamer.visit(old)
+            renamer.version = "new"
+            renamer.visit(new)
         if (well_formed):
             return c_ast.Compound([old, new])
         else:
@@ -198,7 +296,13 @@ def merge(old, new, well_formed = True):
         if (str(new.cond) == str(old.cond)):
             return c_ast.If(cond=new.cond, iftrue= merge(old.iftrue, new.iftrue ), iffalse=merge(old.iffalse, new.iffalse))
 
-
+    #cannot merge if get here, check we need to versions variables.
+    touched_set = mark_touched_variables(old, new)
+    if (len(touched_set) > 0):
+        renamer = IDRenameVisitor("old", list(touched_set))
+        renamer.visit(old)
+        renamer.version = "new"
+        renamer.visit(new)
     if (well_formed):
         return c_ast.Compound([old, new])
     else:
