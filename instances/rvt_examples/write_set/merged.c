@@ -17,8 +17,12 @@ int client() {
 	int ret_old;
     int ret_new;
     int x = 1;
-    s->data = x;
+    my->data = x;
     ret_old = 0;
     ret_new = 1;
 	assert( (ret_old < 10) == (ret_new < 10)) ;
+}
+
+int main(){
+    client();
 }

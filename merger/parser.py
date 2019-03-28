@@ -72,7 +72,10 @@ class DataModVisitor(c_ast.NodeVisitor):
     def visit_UnaryOp(self, node):
         if isinstance(node, c_ast.UnaryOp):
             if isinstance(node.expr, c_ast.ID):
-                self.define.add(node.expr.name)
+                if (node.op == "p--" or node.op == "p++" ):
+                    self.define.add(node.expr.name)
+                else:
+                    self.use.add(node.expr.name)
 
     def visit_Decl(self, node):
         if isinstance(node, c_ast.Decl):
@@ -80,6 +83,13 @@ class DataModVisitor(c_ast.NodeVisitor):
                 self.define.add(node.type.declname)
             if isinstance(node.init , c_ast.ID):
                 self.use.add(node.init.name)
+
+    def visit_BinaryOp(self,node):
+        if isinstance(node, c_ast.BinaryOp):
+            if  isinstance(node.left, c_ast.ID):
+                self.use.add(node.left)
+            if isinstance(node.right, c_ast.ID):
+                self.use.add(node.right)
 
 
 class ReturnHuntVisitor(c_ast.NodeVisitor):
@@ -269,23 +279,43 @@ def merge(old, new, well_formed = True):
 
     #case 5, merge for loops
     elif isinstance(new, c_ast.For) and isinstance(old, c_ast.For):
-        #in case the loop cond is identical
-        disjunct_for_cond = c_ast.BinaryOp(left=old.cond, right=new.cond, op='||')
-        old_statement = c_ast.If(cond=old.cond, iftrue=old.stmt, iffalse=None)
-        new_statement = c_ast.If(cond=new.cond, iftrue=new.stmt, iffalse=None)
-        loop_body = c_ast.Compound([old_statement, new_statement])
-        merged_exp = merge_expressions(old, new)
+        #ltry to find a variable version fix-point
+        while(True):
+            mark_touched_variables(old.cond, new.cond)
+            rename_ID(old.cond, new.cond, touched)
+            disjunct_for_cond = c_ast.BinaryOp(left=old.cond, right=new.cond, op='||')
+            old_statement = c_ast.If(cond=old.cond, iftrue=old.stmt, iffalse=None)
+            new_statement = c_ast.If(cond=new.cond, iftrue=new.stmt, iffalse=None)
+            touched_old_size = len(touched)
+            loop_body =  c_ast.Compound([merge(old_statement, new_statement)])
+            merged_exp = merge_expressions(old, new)
+            if (len(touched) == touched_old_size):
+                break;
+            else:
+                mark_touched_variables(old.cond, new.cond)
+                rename_ID(old.cond, new.cond, touched)
+
         merged_for =  c_ast.For(init=merge(new.init, old.init), next=merged_exp, cond= disjunct_for_cond, stmt=loop_body)
 
         return merged_for
 
     #case 6, merge while loops
     elif isinstance(new, c_ast.While) and isinstance(old, c_ast.While):
-        #in case the loop cond is identical
-        disjunct_while_cond = c_ast.BinaryOp(left=old.cond, right=new.cond, op='||')
-        old_statement = c_ast.If(cond=old.cond, iftrue=old.stmt, iffalse=None)
-        new_statement = c_ast.If(cond=new.cond, iftrue=new.stmt, iffalse=None)
-        loop_body = c_ast.Compound([old_statement, new_statement])
+        # ltry to find a variable version fix-point
+        while (True):
+            mark_touched_variables(old.cond, new.cond)
+            rename_ID(old.cond, new.cond, touched)
+            disjunct_while_cond = c_ast.BinaryOp(left=old.cond, right=new.cond, op='||')
+            old_statement = c_ast.If(cond=old.cond, iftrue=old.stmt, iffalse=None)
+            new_statement = c_ast.If(cond=new.cond, iftrue=new.stmt, iffalse=None)
+            touched_old_size = len(touched)
+            loop_body = c_ast.Compound([merge(old_statement, new_statement)])
+            if (len(touched) == touched_old_size):
+                break;
+            else:
+                mark_touched_variables(old.cond, new.cond)
+                rename_ID(old.cond, new.cond, touched)
+
         merged_while =  c_ast.While(cond= disjunct_while_cond, stmt= loop_body)
         return merged_while
 
