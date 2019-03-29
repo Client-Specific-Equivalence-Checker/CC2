@@ -51,6 +51,9 @@ class IDRenameVisitor(c_ast.NodeVisitor):
             if isinstance(node.type, c_ast.TypeDecl):
                 if not node.type.declname.endswith("_"+self.version)and node.type.declname in self.targets:
                     node.type.declname = (node.type.declname+"_"+ self.version)
+            if isinstance(node.init, c_ast.ID):
+                if not node.init.name.endswith("_" + self.version) and node.init.name in self.targets:
+                    node.init.name = (node.init.name+"_"+ self.version)
 
 
 '''
@@ -72,7 +75,7 @@ class DataModVisitor(c_ast.NodeVisitor):
     def visit_UnaryOp(self, node):
         if isinstance(node, c_ast.UnaryOp):
             if isinstance(node.expr, c_ast.ID):
-                if (node.op == "p--" or node.op == "p++" ):
+                if (node.op.endswith("--") or node.op.endswith("++") ):
                     self.define.add(node.expr.name)
                 else:
                     self.use.add(node.expr.name)
@@ -148,20 +151,20 @@ def list_merge(old_list, new_list, old_start, new_start, old_limit, new_limit, t
             new_start += 1
 
 def merge_expressions(old, new):
-    mark_touched_variables(old.next, new.next)
+    rename_ID(old.next, new.next, touched)
     if str(new.next) == str(old.next):
         return new.next
     if isinstance(new.next, c_ast.ExprList):
-        exprs = set(new.next.exprs)
+        exprs = new.next.exprs
     else:
-        exprs = set(new.next)
+        exprs = [new.next]
 
     if isinstance(old.next, c_ast.ExprList):
-        exprs.union(set(old.next.exprs))
+        exprs+= old.next.exprs
     else:
-        exprs.union(set(old.next))
+        exprs.append(old.next)
 
-    return c_ast.ExprList(list(exprs))
+    return c_ast.ExprList(exprs)
 
 def add_nodes (node_list, new_node):
     if isinstance(new_node, list):
@@ -169,17 +172,23 @@ def add_nodes (node_list, new_node):
     else:
         node_list.append(new_node)
 
-def mark_touched_variables(old, new):
+def mark_touched_variables(old, new, ignore_id=False):
     global impacted
     global old_touched
     global new_touched
     global touched
+
+
     dv_old = DataModVisitor()
-    dv_old.visit(old);
-    old_touched = old_touched.union(dv_old.define)
+    if old is not None:
+        dv_old.visit(old)
     dv_new = DataModVisitor()
-    dv_new.visit(new);
-    new_touched = new_touched.union(dv_new.define)
+    if new is not None:
+        dv_new.visit(new)
+
+    if (str(new) != str(old) or ignore_id):
+        old_touched = old_touched.union(dv_old.define)
+        new_touched = new_touched.union(dv_new.define)
 
     # now look at the use set. use set is considered if it has an intesection with define set.
     old_touched = old_touched.union(dv_old.use.intersection(new_touched))
@@ -209,11 +218,15 @@ def merge(old, new, well_formed = True):
         return new
     #case 2, if one side is empty:
     elif old is None:
+        new_touched = mark_touched_variables(None, new)
+        rename_ID(old, new, new_touched)
         return new
     elif new is None:
+        new_touched = mark_touched_variables(old, None)
+        rename_ID(old, new, new_touched)
         return old
     #case 3, new or old are compound block
-    elif isinstance(new, c_ast.Compound) or isinstance(new, c_ast.Compound):
+    if isinstance(new, c_ast.Compound) or isinstance(new, c_ast.Compound):
         if (new, c_ast.Compound):
             new_blocks =new.block_items
         else:
@@ -282,8 +295,7 @@ def merge(old, new, well_formed = True):
     elif isinstance(new, c_ast.For) and isinstance(old, c_ast.For):
         #ltry to find a variable version fix-point
         while(True):
-            mark_touched_variables(old.init, new.init)
-            rename_ID(old.init, new.init, touched)
+            initals = merge(new.init, old.init)
             mark_touched_variables(old.cond, new.cond)
             rename_ID(old.cond, new.cond, touched)
             disjunct_for_cond = c_ast.BinaryOp(left=old.cond, right=new.cond, op='||')
@@ -291,14 +303,14 @@ def merge(old, new, well_formed = True):
             new_statement = c_ast.If(cond=new.cond, iftrue=new.stmt, iffalse=None)
             touched_old_size = len(touched)
             loop_body =  c_ast.Compound([merge(old_statement, new_statement)])
+            if (str(old.cond) != str(new.cond)):
+                mark_touched_variables(old.next, new.next, ignore_id=True)
             merged_exp = merge_expressions(old, new)
             if (len(touched) == touched_old_size):
-                break;
-            else:
-                mark_touched_variables(old.cond, new.cond)
-                rename_ID(old.cond, new.cond, touched)
+                break
 
-        merged_for =  c_ast.For(init=merge(new.init, old.init), next=merged_exp, cond= disjunct_for_cond, stmt=loop_body)
+
+        merged_for =  c_ast.For(init= initals, next=merged_exp, cond= disjunct_for_cond, stmt=loop_body)
 
         return merged_for
 
@@ -315,9 +327,7 @@ def merge(old, new, well_formed = True):
             loop_body = c_ast.Compound([merge(old_statement, new_statement)])
             if (len(touched) == touched_old_size):
                 break;
-            else:
-                mark_touched_variables(old.cond, new.cond)
-                rename_ID(old.cond, new.cond, touched)
+
 
         merged_while =  c_ast.While(cond= disjunct_while_cond, stmt= loop_body)
         return merged_while
