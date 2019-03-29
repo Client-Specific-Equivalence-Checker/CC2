@@ -60,6 +60,15 @@ class IDRenameVisitor(c_ast.NodeVisitor):
 Data flow analysis on AST to determine 
 touched variables.
 '''
+
+class IDhunter(c_ast.NodeVisitor):
+    def __init__(self):
+        self.container = set()
+
+    def visit_ID(self, node):
+        if isinstance(node, c_ast.ID):
+            self.container.add(node.name)
+
 class DataModVisitor(c_ast.NodeVisitor):
     def __init__(self):
         self.define = set()
@@ -67,32 +76,45 @@ class DataModVisitor(c_ast.NodeVisitor):
 
     def visit_Assignment(self, node):
         if isinstance(node, c_ast.Assignment):
-            if isinstance(node.lvalue , c_ast.ID):
-                self.define.add(node.lvalue.name)
-            if isinstance(node.rvalue , c_ast.ID):
-                self.use.add(node.rvalue.name)
+            if node.lvalue is not None:
+                id_hunter_l = IDhunter()
+                id_hunter_l.visit(node.lvalue)
+                self.define = self.define.union(id_hunter_l.container)
+            if node.rvalue is not None:
+                id_hunter_r = IDhunter()
+                id_hunter_r.visit(node.rvalue)
+                self.use = self.use.union(id_hunter_r.container)
+
 
     def visit_UnaryOp(self, node):
         if isinstance(node, c_ast.UnaryOp):
-            if isinstance(node.expr, c_ast.ID):
-                if (node.op.endswith("--") or node.op.endswith("++") ):
-                    self.define.add(node.expr.name)
-                else:
-                    self.use.add(node.expr.name)
+            if (node.op.endswith("--") or node.op.endswith("++") ):
+                self.define.add(node.expr.name)
+            elif node.expr is not None:
+                id_hunter_r = IDhunter()
+                id_hunter_r.visit(node.expr)
+                self.use = self.use.union(id_hunter_r.container)
 
     def visit_Decl(self, node):
         if isinstance(node, c_ast.Decl):
             if isinstance(node.type, c_ast.TypeDecl):
                 self.define.add(node.type.declname)
-            if isinstance(node.init , c_ast.ID):
-                self.use.add(node.init.name)
+
+                if node.init is not None:
+                    id_hunter_r = IDhunter()
+                    id_hunter_r.visit(node.init)
+                    self.use = self.use.union(id_hunter_r.container)
 
     def visit_BinaryOp(self,node):
         if isinstance(node, c_ast.BinaryOp):
-            if  isinstance(node.left, c_ast.ID):
-                self.use.add(node.left)
-            if isinstance(node.right, c_ast.ID):
-                self.use.add(node.right)
+            if node.left is not None:
+                id_hunter_l = IDhunter()
+                id_hunter_l.visit(node.left)
+                self.define = self.define.union(id_hunter_l.container)
+            if node.right is not None:
+                id_hunter_r = IDhunter()
+                id_hunter_r.visit(node.right)
+                self.use = self.use.union(id_hunter_r.container)
 
 
 class ReturnHuntVisitor(c_ast.NodeVisitor):
@@ -111,6 +133,11 @@ class ReturnHuntVisitor(c_ast.NodeVisitor):
                 parent.iftrue = assignment
             elif (index == 2):
                 parent.iffalse = assignment
+        elif isinstance(parent, c_ast.For):
+            parent.stmt = assignment
+        elif isinstance(parent, c_ast.While):
+            parent.stmt = assignment
+
 
     def visit(self, node, parent, index=0):
         """ Visit a node.
