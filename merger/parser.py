@@ -148,6 +148,7 @@ def list_merge(old_list, new_list, old_start, new_start, old_limit, new_limit, t
             new_start += 1
 
 def merge_expressions(old, new):
+    mark_touched_variables(old.next, new.next)
     if str(new.next) == str(old.next):
         return new.next
     if isinstance(new.next, c_ast.ExprList):
@@ -281,6 +282,8 @@ def merge(old, new, well_formed = True):
     elif isinstance(new, c_ast.For) and isinstance(old, c_ast.For):
         #ltry to find a variable version fix-point
         while(True):
+            mark_touched_variables(old.init, new.init)
+            rename_ID(old.init, new.init, touched)
             mark_touched_variables(old.cond, new.cond)
             rename_ID(old.cond, new.cond, touched)
             disjunct_for_cond = c_ast.BinaryOp(left=old.cond, right=new.cond, op='||')
