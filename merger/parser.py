@@ -110,7 +110,7 @@ class DataModVisitor(c_ast.NodeVisitor):
             if node.left is not None:
                 id_hunter_l = IDhunter()
                 id_hunter_l.visit(node.left)
-                self.define = self.define.union(id_hunter_l.container)
+                self.use = self.use.union(id_hunter_l.container)
             if node.right is not None:
                 id_hunter_r = IDhunter()
                 id_hunter_r.visit(node.right)
@@ -382,9 +382,16 @@ def merge(old, new, well_formed = True):
         return [old, new]
 
 def merge_files (path_old, path_new, client, lib):
-    old_ast = parse_file(path_old)
-    new_ast = parse_file(path_new)
+    old_ast = parse_file(path_old, use_cpp=True,
+            cpp_path='gcc',
+            cpp_args=['-E', r'-Iutils/fake_libc_include'])
+    new_ast = parse_file(path_new,use_cpp=True,
+            cpp_path='gcc',
+            cpp_args=['-E', r'-Iutils/fake_libc_include'])
     #now look for lib from both versions
+
+    #generator = c_generator.CGenerator()
+    #print(generator.visit(old_ast))
 
     old_lib_visitor = FuncDefVisitor(lib)
     old_lib_visitor.visit(old_ast)
