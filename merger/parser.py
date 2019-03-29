@@ -242,7 +242,10 @@ def merge(old, new, well_formed = True):
     rename_ID(old, new, touched)
     #case 1, new and old are syntactically identical
     if (str(new) == str(old)):
-        return new
+        new_touched= mark_touched_variables(old, new)
+        rename_ID(old, new, new_touched)
+        if (str(new) == str(old)):
+            return new
     #case 2, if one side is empty:
     elif old is None:
         new_touched = mark_touched_variables(None, new)
