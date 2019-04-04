@@ -1,11 +1,15 @@
 import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast
+import copy
 
 impacted = False
 old_touched = set()
 new_touched = set()
 touched = set()
+renamed = set()
+declared = set()
+value_copied =set()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -38,22 +42,42 @@ class IDRenameVisitor(c_ast.NodeVisitor):
     def __init__(self, version, targets):
         self.version = version
         self.targets = targets
+        self.renamed = set()
+        self.declared = set()
 
     def visit_ID(self, node):
         if isinstance(node, c_ast.ID):
             if not node.name.endswith("_"+self.version)and node.name in self.targets:
+                self.renamed.add((node.name, self.version))
                 node.name = (node.name+"_"+ self.version)
 
     def visit_Decl(self, node):
         if isinstance(node, c_ast.Decl):
             if not node.name.endswith("_" + self.version) and node.name in self.targets:
+                self.declared.add((node.name, self.version))
                 node.name = (node.name + "_" + self.version)
             if isinstance(node.type, c_ast.TypeDecl):
                 if not node.type.declname.endswith("_"+self.version)and node.type.declname in self.targets:
+                    self.declared.add((node.name, self.version))
                     node.type.declname = (node.type.declname+"_"+ self.version)
-            if isinstance(node.init, c_ast.ID):
-                if not node.init.name.endswith("_" + self.version) and node.init.name in self.targets:
-                    node.init.name = (node.init.name+"_"+ self.version)
+            if node.init is not None:
+                hunter = IDhunterRaw()
+                hunter.visit(node.init)
+                for tnode in hunter.container:
+                    if not tnode.name.endswith("_" + self.version) and tnode.name in self.targets:
+                        self.renamed.add((tnode.name, self.version))
+                        tnode.name = (tnode.name+"_"+ self.version)
+
+
+class DeclHunter(c_ast.NodeVisitor):
+    def __init__(self, target):
+        self.container = {}
+        self.target = target
+
+    def visit_Decl(self, node):
+        if isinstance(node, c_ast.Decl):
+            if node.name in self.target:
+                self.container[node.name] = copy.deepcopy(node.type)
 
 
 '''
@@ -69,6 +93,118 @@ class IDhunter(c_ast.NodeVisitor):
         if isinstance(node, c_ast.ID):
             self.container.add(node.name)
 
+
+class IDhunterRaw(c_ast.NodeVisitor):
+    def __init__(self):
+        self.container = []
+
+    def visit_ID(self, node):
+        if isinstance(node, c_ast.ID):
+            self.container.append(node)
+
+
+class DataSynVisitor(c_ast.NodeVisitor):
+    def __init__(self, updateMap):
+        self.update_map = updateMap
+
+    def visit_Assignment(self, node, parent, index):
+        if node.rvalue is not None and not isinstance(node.rvalue, c_ast.ID):
+            self.visit(node.rvalue, node, 1)
+        if node.lvalue is not None:
+            if isinstance(node.lvalue, c_ast.ID):
+                if node.lvalue.name in self.update_map:
+                    update_targets = self.update_map[node.lvalue.name]
+                    for target in update_targets:
+                        node.rvalue = copy.deepcopy(node)
+                        node.lvalue = c_ast.ID(name=target)
+            else:
+                self.visit(node.lvalue, node, 0)
+
+    def visit_Decl(self, node, parent, index):
+        if isinstance(node, c_ast.Decl) and node.name in self.update_map:
+            update_targets = self.update_map[node.name]
+            if node.init is not None:
+                if not isinstance(node.init, c_ast.ID):
+                    self.visit(node.init, node, 1)
+                for target in update_targets:
+                    new_init = c_ast.Assignment(op='=', lvalue=c_ast.ID(name=target), rvalue=node.init)
+                    node.init = new_init
+
+    def visit_UnaryOp(self, node, parent, index):
+        if isinstance(node, c_ast.UnaryOp):
+            if not (node.op.endswith("--") or node.op.endswith("++") ):
+                if not isinstance(node.expr, c_ast.ID):
+                    self.visit(node.expr, node, 0)
+            else:
+                if not isinstance(node.expr, c_ast.ID):
+                    self.visit(node.expr, node, 0)
+                else:
+                    if node.expr.name in self.update_map:
+                        update_targets = self.update_map[node.expr.name]
+                        old_op = node.op;
+                        for target in update_targets:
+                            if (old_op.startswith('p')):
+                                node = c_ast.UnaryOp(expr = c_ast.Assignment(lvalue=c_ast.ID(name = target) , rvalue=node, op='='), op=old_op)
+                            else:
+                                node =c_ast.Assignment(lvalue=c_ast.ID(name=target), rvalue=node, op='=')
+                        if isinstance(parent, c_ast.Compound):
+                            parent.block_items[index] = node
+                        elif isinstance(parent, c_ast.If):
+                            if (index == 1):
+                                parent.iftrue = node
+                            elif (index == 2):
+                                parent.iffalse = node
+                        elif isinstance(parent, c_ast.For):
+                            parent.stmt = node
+                        elif isinstance(parent, c_ast.While):
+                            parent.stmt = node
+                        elif isinstance(parent, c_ast.Decl):
+                            if index == 1:
+                                parent.init = node
+                        elif isinstance(parent, c_ast.Assignment):
+                            if index ==0:
+                                parent.lvalue = node
+                            elif index ==1:
+                                parent.rvalue = node
+                        elif isinstance(parent, c_ast.BinaryOp):
+                            if index == 0:
+                                parent.left = node
+                            elif index ==1:
+                                parent.right =node
+                        elif isinstance(parent, c_ast.UnaryOp):
+                            if index == 0:
+                                parent.expr = node
+
+
+
+
+    def visit(self, node, parent, index=0):
+        """ Visit a node.
+        """
+
+        if self._method_cache is None:
+            self._method_cache = {}
+
+        visitor = self._method_cache.get(node.__class__.__name__, None)
+        if visitor is None:
+            method = 'visit_' + node.__class__.__name__
+            visitor = getattr(self, method, self.generic_visit)
+            self._method_cache[node.__class__.__name__] = visitor
+
+        return visitor(node, parent, index)
+
+    def generic_visit(self, node, parent, index=0):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+        counter = 0
+        for c in node:
+            self.visit(c, node, counter)
+            counter+=1
+
+
+
+
 class DataModVisitor(c_ast.NodeVisitor):
     def __init__(self):
         self.define = set()
@@ -77,44 +213,53 @@ class DataModVisitor(c_ast.NodeVisitor):
     def visit_Assignment(self, node):
         if isinstance(node, c_ast.Assignment):
             if node.lvalue is not None:
-                id_hunter_l = IDhunter()
-                id_hunter_l.visit(node.lvalue)
-                self.define = self.define.union(id_hunter_l.container)
+                if isinstance(node.lvalue, c_ast.ID):
+                    self.define.add(node.lvalue.name)
+                else:
+                    self.visit(node.lvalue)
             if node.rvalue is not None:
-                id_hunter_r = IDhunter()
-                id_hunter_r.visit(node.rvalue)
-                self.use = self.use.union(id_hunter_r.container)
+                if isinstance(node.rvalue, c_ast.ID):
+                    self.use.add(node.rvalue.name)
+                else:
+                    self.visit(node.rvalue)
 
 
     def visit_UnaryOp(self, node):
         if isinstance(node, c_ast.UnaryOp):
             if (node.op.endswith("--") or node.op.endswith("++") ):
-                self.define.add(node.expr.name)
+                if isinstance(node.expr, c_ast.ID):
+                    self.define.add(node.expr.name)
+                    self.use.add(node.expr.name)
+                else:
+                    self.visit(node.expr)
             elif node.expr is not None:
-                id_hunter_r = IDhunter()
-                id_hunter_r.visit(node.expr)
-                self.use = self.use.union(id_hunter_r.container)
+                if isinstance(node.expr, c_ast.ID):
+                    self.use.add(node.expr.name)
+                else:
+                    self.visit(node.expr)
 
     def visit_Decl(self, node):
         if isinstance(node, c_ast.Decl):
-            if isinstance(node.type, c_ast.TypeDecl):
-                self.define.add(node.type.declname)
+            self.define.add(node.name)
 
-                if node.init is not None:
-                    id_hunter_r = IDhunter()
-                    id_hunter_r.visit(node.init)
-                    self.use = self.use.union(id_hunter_r.container)
+            if node.init is not None:
+                if isinstance(node.init, c_ast.ID):
+                    self.use.add(node.init.name)
+                else:
+                    self.visit(node.init)
 
     def visit_BinaryOp(self,node):
         if isinstance(node, c_ast.BinaryOp):
             if node.left is not None:
-                id_hunter_l = IDhunter()
-                id_hunter_l.visit(node.left)
-                self.use = self.use.union(id_hunter_l.container)
+                if isinstance(node.left, c_ast.ID):
+                    self.use.add(node.left)
+                else:
+                    self.visit(node.left)
             if node.right is not None:
-                id_hunter_r = IDhunter()
-                id_hunter_r.visit(node.right)
-                self.use = self.use.union(id_hunter_r.container)
+                if isinstance(node.right, c_ast.ID):
+                    self.use.add(node.right)
+                else:
+                    self.visit(node.right)
 
 
 class ReturnHuntVisitor(c_ast.NodeVisitor):
@@ -221,12 +366,14 @@ def mark_touched_variables(old, new, ignore_id=False):
     old_touched = old_touched.union(dv_old.use.intersection(new_touched))
     new_touched = new_touched.union(dv_new.use.intersection(old_touched))
 
-    new_int = old_touched.intersection(new_touched)
+    new_int = old_touched.union(new_touched)
     set_of_interest = new_int.difference(touched)
     touched = new_int
     return set_of_interest;
 
 def rename_ID(old, new, touched_set):
+    global renamed
+    global declared
     if (len(touched_set) > 0):
         renamer = IDRenameVisitor("", list(touched_set))
         if (old is not None):
@@ -235,6 +382,8 @@ def rename_ID(old, new, touched_set):
         if (new is not None):
             renamer.version = "new"
             renamer.visit(new)
+        renamed = renamer.renamed.union(renamed);
+        declared = renamer.declared.union(declared);
 
 
 def merge(old, new, well_formed = True):
@@ -243,17 +392,17 @@ def merge(old, new, well_formed = True):
     #case 1, new and old are syntactically identical
     if (str(new) == str(old)):
         new_touched= mark_touched_variables(old, new)
-        rename_ID(old, new, new_touched)
+        rename_ID(old, new, touched)
         if (str(new) == str(old)):
             return new
     #case 2, if one side is empty:
     elif old is None:
         new_touched = mark_touched_variables(None, new)
-        rename_ID(old, new, new_touched)
+        rename_ID(old, new, touched)
         return new
     elif new is None:
         new_touched = mark_touched_variables(old, None)
-        rename_ID(old, new, new_touched)
+        rename_ID(old, new, touched)
         return old
     #case 3, new or old are compound block
     if isinstance(new, c_ast.Compound) or isinstance(new, c_ast.Compound):
@@ -308,10 +457,7 @@ def merge(old, new, well_formed = True):
     elif type(new) != type(old):
         touched_set = mark_touched_variables(old, new)
         if (len(touched_set) > 0):
-            renamer = IDRenameVisitor("old", list(touched_set))
-            renamer.visit(old)
-            renamer.version = "new"
-            renamer.visit(new)
+            rename_ID(old, new, list(touched_set))
         if (well_formed):
             return c_ast.Compound([old, new])
         else:
@@ -372,14 +518,40 @@ def merge(old, new, well_formed = True):
     #cannot merge if get here, check we need to versions variables.
     touched_set = mark_touched_variables(old, new)
     if (len(touched_set) > 0):
-        renamer = IDRenameVisitor("old", list(touched_set))
-        renamer.visit(old)
-        renamer.version = "new"
-        renamer.visit(new)
+        rename_ID(old, new, list(touched_set))
     if (well_formed):
         return c_ast.Compound([old, new])
     else:
         return [old, new]
+
+
+def add_new_declares (node, signatures):
+    global renamed
+    global declared
+
+    undeclared = renamed - declared
+    undeclared_name = set([name for name, version in undeclared])
+    declhunter = DeclHunter(undeclared_name)
+    declhunter.visit(node)
+    declhunter.visit(signatures)
+    target_map = {}
+    for (name, version) in undeclared:
+            new_name = name+"_"+version
+            if name in target_map:
+                target_map[name] += [new_name]
+            else:
+                target_map[name] = [new_name]
+            new_type = declhunter.container[name]
+            cur_type = new_type
+            while (not isinstance(cur_type, c_ast.TypeDecl)):
+                cur_type = cur_type.type
+            cur_type.declname = new_name
+            node.block_items.insert(0, c_ast.Decl(name=new_name, quals=[], storage=[], init=c_ast.ID(name=name), funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname=new_name, quals=[], type=new_type)));
+
+
+    syn = DataSynVisitor(target_map)
+    syn.visit(node, None, 0)
 
 def merge_files (path_old, path_new, client, lib):
     old_ast = parse_file(path_old, use_cpp=True,
@@ -419,6 +591,7 @@ def merge_files (path_old, path_new, client, lib):
                                                        type=c_ast.TypeDecl(declname="ret_new", quals=[], type=c_ast.IdentifierType(['int']))))
 
     merged_ast = merge(old_lib_node.body, new_lib_node.body)
+    add_new_declares(merged_ast, new_lib_node.decl.type.args)
 
 
 
