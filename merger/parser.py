@@ -385,6 +385,11 @@ def rename_ID(old, new, touched_set):
         renamed = renamer.renamed.union(renamed);
         declared = renamer.declared.union(declared);
 
+def rename_touched_ID(node, touched_set):
+    if (len(touched_set) > 0):
+        renamer = IDRenameVisitor("touched", list(touched_set))
+        renamer.visit(node)
+
 
 def merge(old, new, well_formed = True):
     global touched
@@ -532,8 +537,9 @@ def add_new_declares (node, signatures):
     undeclared = renamed - declared
     undeclared_name = set([name for name, version in undeclared])
     declhunter = DeclHunter(undeclared_name)
-    declhunter.visit(node)
     declhunter.visit(signatures)
+    init_by_arg = copy.deepcopy(declhunter.container)
+    declhunter.visit(node)
     target_map = {}
     for (name, version) in undeclared:
             new_name = name+"_"+version
@@ -546,7 +552,11 @@ def add_new_declares (node, signatures):
             while (not isinstance(cur_type, c_ast.TypeDecl)):
                 cur_type = cur_type.type
             cur_type.declname = new_name
-            node.block_items.insert(0, c_ast.Decl(name=new_name, quals=[], storage=[], init=c_ast.ID(name=name), funcspec=[], bitsize=None,
+            if (name in init_by_arg):
+                init_value = c_ast.ID(name=name)
+            else:
+                init_value = None
+            node.block_items.insert(0, c_ast.Decl(name=new_name, quals=[], storage=[], init=init_value, funcspec=[], bitsize=None,
                                                        type=c_ast.TypeDecl(declname=new_name, quals=[], type=new_type)));
 
 
@@ -593,11 +603,319 @@ def merge_files (path_old, path_new, client, lib):
     merged_ast = merge(old_lib_node.body, new_lib_node.body)
     add_new_declares(merged_ast, new_lib_node.decl.type.args)
 
+    client_visitor = FuncDefVisitor(client)
+    client_visitor.visit(old_ast)
+    client_node = client_visitor.container
 
+    assert not client_node is None, "client does not exist"
+    changed_clients = analyze_client(client_node.body, lib);
 
     generator = c_generator.CGenerator()
     print(generator.visit(merged_ast))
+
+    for i in range ( len(changed_clients)):
+        print ("client "+ str(i+1))
+        print(generator.visit(changed_clients[i]))
+        print ()
     return
+
+
+
+def analyze_client (node, lib):
+    ltv = LoopTransformerVisitor(lib)
+    ltv.visit(node)
+    return ltv.transformed_node
+
+def checkModStatus(node, lib, touched_set):
+    IDv = IDVisitor()
+    for ele in touched_set:
+        IDv.visit(ele)
+
+    fvistor = FuncInvocVisitor(lib, IDv.ID_set)
+    fvistor.visit(node)
+    return fvistor.touched
+
+def create_nondet_nodes(names):
+    nondet_list = []
+
+    for name in names:
+        rvalue = c_ast.FuncCall(name=c_ast.ID(name = "nondet_int"), args=None)
+        nondet_list.append(c_ast.Assignment(lvalue= c_ast.ID(name = name), op='=', rvalue=rvalue))
+    return nondet_list
+
+def create_assert_returns(names):
+    return_list = []
+    for name in names:
+        return_list.append(c_ast.FuncCall(name = c_ast.ID(name = 'Rassert'), args= c_ast.ExprList([c_ast.ID(name = name)])))
+
+    return return_list
+def get_name_set(touched_set):
+    IDv = IDVisitor()
+    for ele in touched_set:
+        IDv.visit(ele)
+
+    return IDv.ID_set
+
+def create_assumption(expr):
+    return c_ast.FuncCall(name=c_ast.ID(name='assume'), args= c_ast.ExprList(exprs= [expr]))
+
+
+class LoopTransformerVisitor(c_ast.NodeVisitor):
+    def __init__(self, lib):
+        self.transformed_node = []
+        self.lib  = lib
+
+    def rename(self, node, modified_set):
+        IDv = IDVisitor()
+        for ele in modified_set:
+            IDv.visit(ele)
+        rename_touched_ID(node, IDv.ID_set)
+
+
+    def visit_Compound(self, node):
+        if isinstance(node, c_ast.Compound):
+            for i in range(0, len(node.block_items)):
+                self.visit(node.block_items[i])
+
+            fv = FuncDataDepVisitor(self.lib)
+            fv.visit(node)
+
+            self.rename(node, fv.modified)
+
+            if (len(fv.modified) > 0):
+                names = get_name_set(fv.modified)
+                new_client = create_nondet_nodes(names)
+                new_client += node.block_items
+                new_client += create_assert_returns(names)
+                new_client = c_ast.Compound(new_client)
+                self.transformed_node.append(new_client)
+
+
+
+
+
+    def visit_While(self,node):
+        if isinstance(node, c_ast.While):
+            # recursively ask the question on the body of the loop, and find the
+            # the first place of change
+            index_keeper = []
+            modi_index = []
+            old_index = len(self.transformed_node)
+            for i in range (0, len(node.stmt.block_items)):
+                self.visit(node.stmt.block_items[i])
+                index_keeper.append(len(self.transformed_node))
+                if (old_index < len(self.transformed_node)):
+                    modi_index.append(i)
+                    old_index = len(self.transformed_node)
+
+
+
+            fv = FuncDataDepVisitor(self.lib)
+            fv.visit(node.stmt)
+            fv.visit(node.cond)
+            cond_diff = checkModStatus(node.cond, self.lib, fv.modified)
+            if (cond_diff):
+               fv.modified = fv.define
+            old_size = 0
+            while (len(fv.modified) - old_size) > 0:
+               old_size = len(fv.modified)
+               fv.visit(node.stmt)
+               fv.visit(node.cond)
+               cond_diff = checkModStatus(node.cond, self.lib, fv.modified)
+               if (cond_diff):
+                   fv.modified = fv.define
+
+
+            #only looking for nested change happening after the first identified body
+            start = -1
+            if (node.stmt in fv.start_end):
+               start = fv.start_end[node.stmt][0]
+               start_index = index_keeper[start]
+
+
+            #if we get here, fix-point has been reached
+            # rename all modified
+            self.rename(node, fv.modified)
+
+            #add client node into the list
+            if (len(fv.modified) > 0):
+                names = get_name_set(fv.modified)
+                new_client = create_nondet_nodes(names)
+                new_client.append(create_assumption(node.cond))
+                new_client += node.stmt.block_items
+                new_client += create_assert_returns(names)
+                new_client = c_ast.Compound(new_client)
+                if (start != -1):
+                    self.transformed_node.insert(start_index, new_client)
+                    if (start not in modi_index):
+                        self.transformed_node = self.transformed_node[:start_index+1]
+                else:
+                    self.transformed_node.append(new_client)
+
+
+
+
+    def visit_DoWhile(self,node):
+        if isinstance(node, c_ast.DoWhile):
+            # recursively ask the question on the body of the loop, and find the
+            # the first place of change
+            index_keeper = []
+            modi_index = []
+            old_index = len(self.transformed_node)
+            for i in range(0, len(node.stmt.block_items)):
+                self.visit(node.stmt.block_items[i])
+                index_keeper.append(len(self.transformed_node))
+                if (old_index < len(self.transformed_node)):
+                    modi_index.append(i)
+                    old_index = len(self.transformed_node)
+
+            fv = FuncDataDepVisitor(self.lib)
+            fv.visit(node.stmt)
+            fv.visit(node.cond)
+            cond_diff = checkModStatus(node.cond, self.lib, fv.modified)
+            if (cond_diff):
+                fv.modified = fv.define
+            old_size = 0
+            while (len(fv.modified) - old_size) > 0:
+                old_size = len(fv.modified)
+                fv.visit(node.stmt)
+                fv.visit(node.cond)
+                cond_diff = checkModStatus(node.cond, self.lib, fv.modified)
+                if (cond_diff):
+                    fv.modified = fv.define
+
+            # only looking for nested change happening after the first identified body
+            start = -1
+            if (node.stmt in fv.start_end):
+                start = fv.start_end[node.stmt][0]
+                start_index = index_keeper[start]
+
+            # if we get here, fix-point has been reached
+            # rename all modified
+            self.rename(node, fv.modified)
+
+            # add client node into the list
+            if (len(fv.modified) > 0):
+                names = get_name_set(fv.modified)
+                new_client = create_nondet_nodes(names)
+                new_client.append(create_assumption(node.cond))
+                new_client += node.stmt.block_items
+                new_client += create_assert_returns(names)
+                new_client = c_ast.Compound(new_client)
+                if (start != -1):
+                    self.transformed_node.insert(start_index, new_client)
+                    if (start not in modi_index):
+                        self.transformed_node = self.transformed_node[:start_index + 1]
+                else:
+                    self.transformed_node.append(new_client)
+
+
+class IDVisitor(c_ast.NodeVisitor):
+    def __init__(self):
+        self.ID_set = set()
+
+
+    def visit_ID(self, node):
+        if isinstance(node, c_ast.ID):
+            self.ID_set.add(node.name)
+
+
+class FuncInvocVisitor(c_ast.NodeVisitor):
+    def __init__(self, lib, touched_set =set()):
+        self.lib = lib
+        self.arg_set = []
+        self.touched_set = touched_set
+        self.touched = False
+
+    def visit_FuncCall(self, node):
+        if isinstance(node, c_ast.FuncCall):
+            if node.name.name == self.lib:
+                for arg in node.args.exprs:
+                    self.visit(arg)
+                self.arg_set.append(node.args)
+                self.touched = True
+
+
+    def visit_ID(self, node):
+        if isinstance(node, c_ast.ID):
+            if node.name in self.touched_set:
+                self.touched = True
+
+
+class FuncDataDepVisitor(c_ast.NodeVisitor):
+    def __init__(self, lib):
+        self.lib = lib
+        self.arg_list = []
+        self.ret_set =set()
+        self.modified = set()
+        self.define = set()
+        self.start_end = {}
+        self.cg = c_generator.CGenerator()
+
+
+
+    def visit_Compound(self, node):
+        start = -1
+        end = -1
+        if isinstance(node, c_ast.Compound):
+            for i in range(len(node.block_items)):
+                self.visit(node.block_items[i])
+
+
+        if (not node in self.start_end):
+            if (start != -1):
+                self.start_end[node] = (start, end)
+        elif (node in self.start_end):
+            new_start = self.start_end[node][0]
+            new_end = self.start_end[node][1]
+            if start > -1 and start < new_start:
+                new_start = start
+            if end > new_end:
+                new_end = end
+            self.start_end[node] = (new_start, new_end)
+
+
+    def visit_Assignment(self, node):
+        is_touched = False
+        if isinstance(node, c_ast.Assignment):
+            if node.rvalue is not None:
+                self.visit(node.rvalue)
+                is_touched  = checkModStatus(node.rvalue, self.lib, self.modified)
+            if node.lvalue is not None:
+                self.define.add(node.lvalue)
+                if is_touched:
+                    self.modified.add(node.lvalue)
+
+    def visit_Return(self, node):
+        is_touched = False
+        if isinstance(node, c_ast.Return):
+            if node.expr is not None:
+                self.visit(node.expr)
+                is_touched = checkModStatus(node.expr, self.lib, self.modified)
+                if is_touched:
+                    self.modified.add(c_ast.ID(name="return(" +self.cg.visit(node.expr) + ")"))
+
+
+
+
+    def visit_Decl(self, node):
+        is_touched = False
+        if isinstance(node, c_ast.Decl):
+            if node.init is not None:
+                self.visit(node.init)
+                is_touched = checkModStatus(node.init, self.lib, self.modified)
+            if node.init is not None:
+                self.define.add(node.name)
+                if is_touched:
+                    self.modified.add(node.init)
+
+    def visit_UnaryOp(self, node):
+        if isinstance(node, c_ast.UnaryOp):
+            self.visit(node.expr)
+            if (node.op.endswith("--") or node.op.endswith("++")):
+                self.define.add(node.expr)
+
+
 
 if __name__ == "__main__":
     main()
