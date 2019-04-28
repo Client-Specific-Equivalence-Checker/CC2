@@ -1,6 +1,6 @@
 int n;
 
-int ident(int n) {
+int lib(int n) {
 	return n  ;
 }
 

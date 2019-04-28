@@ -1,6 +1,9 @@
 int int_array[] = {1,2,0,3,4,5,6,8,9,10};
 
 int lib(int n) {
+        n = 5;
+        n++;
+        n++;
         if (n <= 1) return n;
         return n + sum(n-1);
 }

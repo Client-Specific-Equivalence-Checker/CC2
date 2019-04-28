@@ -1,6 +1,6 @@
 int n;
 
-int ident(int n) {
+int lib(int n) {
 int j, i = 0;
 
 for (j = 0; j < n -  i; j++) ;

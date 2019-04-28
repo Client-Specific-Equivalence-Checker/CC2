@@ -1,8 +1,8 @@
 int foo(int a, int b);
 
-int main(int x, char*argv[]) {
+int client(int x, char*argv[]) {
 	if (x>=18 && x<22)
-		return foo(x,20);
+		return lib(x,20);
 	return 0;
 }
 

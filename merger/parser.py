@@ -629,7 +629,10 @@ def analyze_client (node, lib):
 def checkModStatus(node, lib, touched_set):
     IDv = IDVisitor()
     for ele in touched_set:
-        IDv.visit(ele)
+        if isinstance(ele, str):
+            IDv.ID_set.add(ele)
+        else:
+            IDv.visit(ele)
 
     fvistor = FuncInvocVisitor(lib, IDv.ID_set)
     fvistor.visit(node)
@@ -649,10 +652,14 @@ def create_assert_returns(names):
         return_list.append(c_ast.FuncCall(name = c_ast.ID(name = 'Rassert'), args= c_ast.ExprList([c_ast.ID(name = name)])))
 
     return return_list
+
 def get_name_set(touched_set):
     IDv = IDVisitor()
     for ele in touched_set:
-        IDv.visit(ele)
+        if isinstance(ele, str):
+            IDv.ID_set.add(ele)
+        else:
+            IDv.visit(ele)
 
     return IDv.ID_set
 
@@ -668,7 +675,10 @@ class LoopTransformerVisitor(c_ast.NodeVisitor):
     def rename(self, node, modified_set):
         IDv = IDVisitor()
         for ele in modified_set:
-            IDv.visit(ele)
+            if isinstance(ele, str):
+                IDv.ID_set.add(ele)
+            else:
+                IDv.visit(ele)
         rename_touched_ID(node, IDv.ID_set)
 
 

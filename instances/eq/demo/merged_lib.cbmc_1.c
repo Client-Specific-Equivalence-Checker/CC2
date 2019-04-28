@@ -43,7 +43,6 @@ int main(){
     int n = nondet_int();
     __CPROVER_assume(n < 1000);
     __CPROVER_assume(n !=  10);
-    __CPROVER_assume(n !=  100);
     lib(n);
 }
 

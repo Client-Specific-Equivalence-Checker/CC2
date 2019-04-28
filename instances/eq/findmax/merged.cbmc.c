@@ -6,47 +6,40 @@ int main(){
     }
     if (x <= 1000)
      {
-          int ret_old;
-          int ret_new;
-          int i_old = 1;
-          int i_new =1;
-          int max = 0;
-          int maxv = a[0];
-          int result_old;
-          int result_new;
-          int n =1000;
-          while ((i_old < n) || (i_new < n))
-          {
-            {
-              if (i_old < n)
-              {
-                if (a[i_old] >= a[max])
-                {
-                  max = i_old;
-                }
+  int n = 1000;
+  int result_old;
+  int result_new;
+  int ret_old;
+  int ret_new;
+  int i = 1;
+  int max_old = 0;
+  int maxv_new = a[0];
+  int result;
+  while ((i < n) || (i < n))
+  {
+    if (i < n)
+    {
+      if (a[i] >= a[max_old])
+      {
+        max_old = i;
+      }
 
-                i_old++;
-              }
+      if (a[i] >= maxv_new)
+      {
+        maxv_new = a[i];
+      }
 
-              if (i_new < n)
-              {
-                if (a[i_new] >= maxv)
-                {
-                  maxv = a[i_new];
-                }
+      i++;
+    }
 
-                i_new++;
-              }
+  }
 
-            }
-          }
-
-          result_old = a[max];
-          result_new = maxv;
-          ret_old = result_old;
-          ret_new = result_new;
-          assert(result_old == result_new);
-        }
+  result_old = a[max_old];
+  result_new = maxv_new;
+  ret_old = result_old;
+  ret_new = result_new;
+  assert(ret_new == ret_old);
+}
     else
         return 0;
 }
