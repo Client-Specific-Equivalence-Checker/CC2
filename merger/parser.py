@@ -1,7 +1,9 @@
 import argparse
 from os import path
-from pycparser import parse_file, c_generator, c_ast
+from pycparser import parse_file, c_generator, c_ast, c_parser
+from merger import cex_parser, generalizer, client_context_encapsulator
 import copy
+import re
 
 impacted = False
 old_touched = set()
@@ -10,6 +12,23 @@ touched = set()
 renamed = set()
 declared = set()
 value_copied =set()
+
+def clear_global():
+    global impacted
+    global  old_touched
+    global  new_touched
+    global  touched
+    global  renamed
+    global  declared
+    global  value_copied
+    impacted = False
+    old_touched = set()
+    new_touched = set()
+    touched = set()
+    renamed = set()
+    declared = set()
+    value_copied = set()
+    return
 
 def main():
     parser = argparse.ArgumentParser()
@@ -20,11 +39,124 @@ def main():
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
+    assumption_set = set()
     if path.isfile(path_old) and path.isfile(path_new):
-        merge_files (path_old, path_new, args.client, args.lib)
+        merged_lib, client_seq, merged_client, old_lib, m_file = merge_files (path_old, path_new, args.client, args.lib)
+        arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
+        iteration_num = 0
+        while (len(arg_map.keys())>0):
+            write_out_generalizible_lib(merged_lib, "merged_g.c")
+            pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
+            assumption_set.add(pe.get_parition())
+            restricted_c_file, old_lib_string, new_lib_string, main_func = restrict_libraries(old_lib, pe, merged_client)
+            carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=args.client)
+            if (len(carg_map.keys())>0):
+                return
+            else:
+                print ("Iteration %d UNSAT" % iteration_num)
+                refine_library(m_file, assumption_set)
+                arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
+
+
     else:
         print("invalid input files")
         exit(1)
+
+def refine_library(m_file, assumptions):
+    m_file_copy = copy.deepcopy(m_file)
+    parser = c_parser.CParser()
+    for assume in assumptions:
+        hackie_assume = "int a = (" + assume.replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
+        ass_node = (parser.parse(hackie_assume).ext[0].init)
+        new_expr = c_ast.If(cond=ass_node, iftrue=c_ast.Return(0), iffalse=None)
+        m_file_copy.ext[1].body.block_items.insert(0, new_expr)
+
+    generator = c_generator.CGenerator()
+    result_string = generator.visit(m_file_copy)
+    print (result_string)
+    with open("merged.c", 'w') as merged_out:
+        merged_out.write(result_string)
+    return 0;
+
+
+def restrict_libraries(lib, pe, client, old_lib_string=None, new_lib_string=None, main_func = None, merged_outfile ="client_merged.c" , option="CBMC"):
+
+    #create base line library version
+    if (old_lib_string is None or new_lib_string is None):
+        lib_copy = copy.deepcopy(lib)
+        lib_copy.body.block_items = []
+        lib_old = lib_copy
+        lib_new = copy.deepcopy(lib_copy)
+        lib_old.decl.name += '_old'
+        lib_old.decl.type.type.declname += "_old"
+        lib_new.decl.name += '_new'
+        lib_new.decl.type.type.declname += "_new"
+        generator = c_generator.CGenerator()
+        old_lib_string = generator.visit(lib_old)
+        new_lib_string = generator.visit(lib_new)
+
+    #generate assumptions and effects
+    assumption_exp = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%")+ "){"
+    old_lib_string = old_lib_string.replace("{\n", "{\n"+assumption_exp+"\n")
+    new_lib_string = new_lib_string.replace("{\n", "{\n"+assumption_exp+"\n")
+    for key, value in pe.get_effect_old().items():
+        old_effect = "return " + value.replace("true","1").replace( (key+" ="), '').replace("bvsrem", "%") + ";"
+        old_lib_string = old_lib_string.replace("\n}", "\n" + old_effect + "}\n  return 0;\n}")
+    for key, value in pe.get_effect_new().items():
+        new_effect = "return " + value.replace("false", "0").replace("true", "1").replace((key+" ="),'').replace("bvsrem", "%") + ";"
+        new_lib_string = new_lib_string.replace("\n}", "\n"+new_effect + "}\n   return 0;\n}")
+
+    #create main function for CBMC checkings
+    c_file_string =""
+    if (option == "CBMC" and main_func is None):
+        params = client.decl.type.args
+
+        main_function = copy.deepcopy(client)
+        main_function.decl.name = "main"
+        main_function.decl.type.type.declname = "main"
+        main_function.decl.type.args = None
+        main_function.body.block_items = []
+        arg_list = []
+        for item in params.params:
+            main_function.body.block_items.append(copy.deepcopy(item))
+            arg_list.append(c_ast.ID(name=item.name))
+        main_function.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name=client.decl.name), args=c_ast.ExprList(exprs=arg_list)))
+
+        c_file_string += ((generator.visit(main_function))+"\n")
+    c_file_string += ((generator.visit(client)) + "\n")
+    c_file_string += ((old_lib_string) + "\n")
+    c_file_string += ((new_lib_string) +"\n")
+    with open(merged_outfile, 'w') as outfile:
+        outfile.write(c_file_string)
+    return merged_outfile, old_lib_string, new_lib_string, main_function
+
+
+def write_out_generalizible_lib(merged_lib, filename):
+    merged_lib = copy.deepcopy(merged_lib)
+    old_nodes= []
+    new_nodes= []
+    for node in merged_lib.body.block_items:
+            if isinstance(node, c_ast.Decl):
+                if re.match('ret_\d_old',node.name):
+                    old_nodes.append(node)
+                elif re.match('ret_\d_new',node.name):
+                    new_nodes.append(node)
+    for old_node in old_nodes:
+        merged_lib.decl.type.args.params.append(c_ast.Decl(name=old_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname=old_node.name, quals=[], type=c_ast.IdentifierType(['int']))))
+        merged_lib.body.block_items.remove(old_node)
+    for new_node in new_nodes:
+        merged_lib.decl.type.args.params.append(
+            c_ast.Decl(name=new_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
+                       type=c_ast.TypeDecl(declname=new_node.name, quals=[], type=c_ast.IdentifierType(['int']))))
+        merged_lib.body.block_items.remove(new_node)
+
+
+    generator = c_generator.CGenerator()
+    with open(filename, "w") as merged_g_file:
+        merged_g_file.write(generator.visit(merged_lib))
+    return merged_lib
+
 
 class FuncDefVisitor(c_ast.NodeVisitor):
     def __init__(self, target):
@@ -268,9 +400,10 @@ class ReturnHuntVisitor(c_ast.NodeVisitor):
     def __init__(self, return_type, return_name):
         self.return_type = return_type
         self.return_name = return_name
+        self.return_nums = 0
 
     def visit_Return(self, node, parent, index=0):
-        assignment = c_ast.Assignment(lvalue=c_ast.ID(self.return_name), rvalue=node.expr, op="=")
+        assignment = c_ast.Assignment(lvalue=c_ast.ID(self.return_name.format(self.return_nums)), rvalue=node.expr, op="=")
         if isinstance(parent, c_ast.Compound):
             parent.block_items[index] = assignment
         elif isinstance(parent, c_ast.If):
@@ -282,6 +415,7 @@ class ReturnHuntVisitor(c_ast.NodeVisitor):
             parent.stmt = assignment
         elif isinstance(parent, c_ast.While):
             parent.stmt = assignment
+        self.return_nums += 1
 
 
     def visit(self, node, parent, index=0):
@@ -537,7 +671,8 @@ def add_new_declares (node, signatures):
     undeclared = renamed - declared
     undeclared_name = set([name for name, version in undeclared])
     declhunter = DeclHunter(undeclared_name)
-    declhunter.visit(signatures)
+    if signatures is not None:
+        declhunter.visit(signatures)
     init_by_arg = copy.deepcopy(declhunter.container)
     declhunter.visit(node)
     target_map = {}
@@ -562,62 +697,6 @@ def add_new_declares (node, signatures):
 
     syn = DataSynVisitor(target_map)
     syn.visit(node, None, 0)
-
-def merge_files (path_old, path_new, client, lib):
-    old_ast = parse_file(path_old, use_cpp=True,
-            cpp_path='gcc',
-            cpp_args=['-E', r'-Iutils/fake_libc_include'])
-    new_ast = parse_file(path_new,use_cpp=True,
-            cpp_path='gcc',
-            cpp_args=['-E', r'-Iutils/fake_libc_include'])
-    #now look for lib from both versions
-
-    #generator = c_generator.CGenerator()
-    #print(generator.visit(old_ast))
-
-    old_lib_visitor = FuncDefVisitor(lib)
-    old_lib_visitor.visit(old_ast)
-    old_lib_node = old_lib_visitor.container
-    assert not old_lib_node is None, "old lib does not exist"
-
-
-    new_lib_visitor =  FuncDefVisitor(lib)
-    new_lib_visitor.visit(new_ast)
-    new_lib_node = new_lib_visitor.container
-    assert not new_lib_node is None, "new lib does not exist"
-
-
-    #check both lib have the same signature
-    assert str(new_lib_node.decl.type) == str(old_lib_node.decl.type) , "lib functions signature mismatch"
-
-    #convert returns into assignment
-    ret_v = ReturnHuntVisitor("int", "ret_old")
-    ret_v.visit(old_lib_node, None)
-    old_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_old", quals=[], storage=[], init=None, funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="ret_old", quals=[], type=c_ast.IdentifierType(['int']))))
-    ret_v = ReturnHuntVisitor("int", "ret_new")
-    ret_v.visit(new_lib_node, None)
-    new_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_new", quals=[], storage=[], init=None, funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="ret_new", quals=[], type=c_ast.IdentifierType(['int']))))
-
-    merged_ast = merge(old_lib_node.body, new_lib_node.body)
-    add_new_declares(merged_ast, new_lib_node.decl.type.args)
-
-    client_visitor = FuncDefVisitor(client)
-    client_visitor.visit(old_ast)
-    client_node = client_visitor.container
-
-    assert not client_node is None, "client does not exist"
-    changed_clients = analyze_client(client_node.body, lib);
-
-    generator = c_generator.CGenerator()
-    print(generator.visit(merged_ast))
-
-    for i in range ( len(changed_clients)):
-        print ("client "+ str(i+1))
-        print(generator.visit(changed_clients[i]))
-        print ()
-    return
 
 
 
@@ -924,6 +1003,152 @@ class FuncDataDepVisitor(c_ast.NodeVisitor):
             self.visit(node.expr)
             if (node.op.endswith("--") or node.op.endswith("++")):
                 self.define.add(node.expr)
+
+def paste_header_with_body(origin, body):
+     origin_copy = copy.deepcopy(origin)
+     origin_copy.body = body
+     return origin_copy
+
+def merge_libs(old_lib, new_lib):
+    clear_global()
+    # convert returns into assignment
+    ret_v = ReturnHuntVisitor("int", "ret_{}_old")
+    ret_v.visit(old_lib, None)
+
+    ret_num = ret_v.return_nums
+    ret_v = ReturnHuntVisitor("int", "ret_{}_new")
+    ret_v.visit(new_lib, None)
+
+    for i in range(ret_num):
+        old_lib.body.block_items.insert(0, c_ast.Decl(name="ret_{}_old_".format(i), quals=[], storage=[], init=None, funcspec=[],
+                                                      bitsize=None,
+                                                      type=c_ast.TypeDecl(declname="ret_{}_old".format(i), quals=[],
+                                                                          type=c_ast.IdentifierType(['int']))))
+        new_lib.body.block_items.insert(0, c_ast.Decl(name="ret_{}_new".format(i), quals=[], storage=[], init=None, funcspec=[],
+                                                      bitsize=None,
+                                                      type=c_ast.TypeDecl(declname="ret_{}_new".format(i), quals=[],
+                                                                          type=c_ast.IdentifierType(['int']))))
+    merged_ast = merge(old_lib.body, new_lib.body)
+
+    add_new_declares(merged_ast, new_lib.decl.type.args)
+    merged_lib = paste_header_with_body(new_lib, merged_ast)
+
+    return merged_lib , ret_num
+
+def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
+    old_ast = parse_file(path_old, use_cpp=True,
+            cpp_path='gcc',
+            cpp_args=['-E', r'-Iutils/fake_libc_include'])
+    new_ast = parse_file(path_new,use_cpp=True,
+            cpp_path='gcc',
+            cpp_args=['-E', r'-Iutils/fake_libc_include'])
+    #now look for lib from both versions
+
+    #generator = c_generator.CGenerator()
+    #print(generator.visit(old_ast))
+
+    old_lib_visitor = FuncDefVisitor(lib)
+    old_lib_visitor.visit(old_ast)
+    old_lib_node = old_lib_visitor.container
+    assert not old_lib_node is None, "old lib does not exist"
+
+
+    new_lib_visitor =  FuncDefVisitor(lib)
+    new_lib_visitor.visit(new_ast)
+    new_lib_node = new_lib_visitor.container
+    assert not new_lib_node is None, "new lib does not exist"
+
+
+    #check both lib have the same signature
+    assert str(new_lib_node.decl.type) == str(old_lib_node.decl.type) , "lib functions signature mismatch"
+
+    #convert returns into assignment
+    ret_v = ReturnHuntVisitor("int", "ret_{}_old")
+    ret_v.visit(old_lib_node, None)
+    old_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_0_old", quals=[], storage=[], init=None, funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname="ret_0_old", quals=[], type=c_ast.IdentifierType(['int']))))
+    ret_v = ReturnHuntVisitor("int", "ret_{}_new")
+    ret_v.visit(new_lib_node, None)
+    new_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_0_new", quals=[], storage=[], init=None, funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname="ret_0_new", quals=[], type=c_ast.IdentifierType(['int']))))
+
+    merged_ast = merge(old_lib_node.body, new_lib_node.body)
+
+    add_new_declares(merged_ast, new_lib_node.decl.type.args)
+    merged_lib = paste_header_with_body(new_lib_node, merged_ast)
+
+    generator = c_generator.CGenerator()
+
+    if (lib_eq_assetion):
+        merged_ast.block_items.append(c_ast.FuncCall(name = c_ast.ID(name = 'assert'), args= c_ast.BinaryOp(op='==',left= c_ast.ID(name="ret_0_old"),
+                                                                                                            right=c_ast.ID(name="ret_0_new") )))
+        params = merged_lib.decl.type.args
+
+        main_function = copy.deepcopy(merged_lib)
+        main_function.decl.name ="main"
+        main_function.decl.type.type.declname = "main"
+        main_function.decl.type.args = None
+        main_function.body.block_items=[]
+        arg_list = []
+        for item in params.params:
+            main_function.body.block_items.append(copy.deepcopy(item))
+            arg_list.append(c_ast.ID(name = item.name))
+        main_function.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name =lib), args=c_ast.ExprList(exprs = arg_list)))
+        m_file = c_ast.FileAST(ext=[main_function, merged_lib])
+
+        with open("merged.c", "w") as merged_file:
+            merged_file.write(generator.visit(m_file))
+    print(generator.visit(merged_lib))
+
+    client_visitor = FuncDefVisitor(client)
+    client_visitor.visit(old_ast)
+    client_node = client_visitor.container
+    client_node_copy = copy.deepcopy(client_node)
+    assert not client_node is None, "client does not exist"
+    changed_clients = client_context_encapsulator.analyze_client(client_node, lib);
+
+    client_index = 0;
+    for i in range ( len(changed_clients)):
+        node_object = changed_clients[i]
+        while (node_object.parent is not None):
+            node_object = node_object.parent
+            print("client " + str(client_index + 1))
+            merged_client_i = version_merge_client(node_object.node, lib)
+            print(generator.visit(merged_client_i))
+            print ()
+            client_index+=1
+
+
+    # new we want to compute the merged client's
+    merged_client = version_merge_client(client_node_copy, lib)
+    print(generator.visit(merged_client))
+    return merged_lib, changed_clients, merged_client, old_lib_node, m_file
+
+def version_merge_client(client, lib):
+    new_client = client
+    old_client = copy.deepcopy(client)
+
+    renamer = lib_invoc_renamer(lib, "new")
+    renamer.visit(new_client)
+    renamer.version = "old"
+    renamer.visit(old_client)
+    merged_client, return_num = merge_libs(old_client, new_client)
+    for i in range(return_num):
+        merged_client.body.block_items.append(
+            c_ast.FuncCall(name=c_ast.ID(name='assert'), args=c_ast.BinaryOp(op='==', left=c_ast.ID(name="ret_{}_old".format(i)),
+                                                                             right=c_ast.ID(name="ret_{}_new".format(i)))))
+    return merged_client
+
+class lib_invoc_renamer(c_ast.NodeVisitor):
+    def __init__(self, lib, version):
+        self.lib = lib
+        self.version = version
+
+    def visit_FuncCall(self, node):
+        if isinstance(node, c_ast.FuncCall):
+            if isinstance(node.name, c_ast.ID):
+                if node.name.name == self.lib:
+                    node.name.name += ('_'+self.version)
 
 
 
