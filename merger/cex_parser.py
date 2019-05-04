@@ -60,7 +60,7 @@ def twos_comp(val, bits):
         val = val - (1 << bits)        # compute negative value
     return val
 
-def launch_CBMC_cex(sourcefile, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=100 , outfile='result.txt', library="lib"):
+def launch_CBMC_cex(sourcefile, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=25 , outfile='result.txt', library="lib"):
     if sourcefile:
         temp_filename = sourcefile + "_SMTout.smt2"
         args = shlex.split(
@@ -88,7 +88,7 @@ if __name__ == "__main__":
   
   parser = argparse.ArgumentParser()
   parser.add_argument('--sourcefile', nargs='?', default=None)
-  parser.add_argument('--unwinds', type=int, default=100)
+  parser.add_argument('--unwinds', type=int, default=25)
   parser.add_argument('--infile', nargs='?', default='tempSMTLIB.smt2')
   parser.add_argument('--outfile', nargs='?', default=None)
   parser.add_argument('--z3output', nargs='?', default='z3temp.out')

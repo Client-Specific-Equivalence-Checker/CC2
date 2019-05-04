@@ -47,7 +47,7 @@ class PEpair(object):
         self.new_effect = {}
         self.old_effect = {}
         for k in range(i, len(parition_effects)):
-                clean =  parition_effects[k].strip("Effect: ")
+                clean =  parition_effects[k][7:]
                 match_old = re.search('(ret_\d_old).*',clean)
                 match_new = re.search('(ret_\d_new).*',clean)
                 if match_old:
