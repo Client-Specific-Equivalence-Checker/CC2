@@ -45,6 +45,7 @@ def main():
     path_old = args.old
     path_new = args.new
     assumption_set = set()
+    post_assertion_set = set()
     if path.isfile(path_old) and path.isfile(path_new):
         base_lib_file, client_seq, merged_client, old_lib, m_file = merge_files (path_old, path_new, args.client, args.lib)
         iteration_num = 0
@@ -60,7 +61,7 @@ def main():
                 write_out_generalizible_lib(merged_lib, "merged_g.c")
                 pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
                 assumption_set.add(pe.get_parition())
-                restricted_c_file, old_lib_string, new_lib_string, main_func = restrict_libraries(merged_lib.ext[1], pe, immediate_caller.node)
+                restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file = restrict_libraries(merged_lib, pe, immediate_caller.node)
                 carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=args.client)
                 if (len(carg_map.keys())>0):
                     print ("Find counter example at immediate caller, now grow")
@@ -76,7 +77,13 @@ def main():
 
                 else:
                     print ("Iteration %d UNSAT" % iteration_num)
-                    refine_library(merged_lib, assumption_set)
+                    if g_klee_file is not None:
+                        write_out_generalizible_client(g_klee_file, "client_merged_g.c")
+                        cpe = generalizer.generalize_client("client_merged_g", args.client)
+                        if (len(post_assertion_set) == 0):
+                            post_assertion_set.update(cpe.get_base_assumption())
+                        post_assertion_set.update(cpe.get_post_assertion_list())
+                    refine_library(merged_lib, assumption_set, post_assertion_set)
                     arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
 
             #We have proved CSE for a lib call-site, mark all verified callers and move on
@@ -107,7 +114,7 @@ def rewrite_lib_file(new_lib, outfile = "merged.c"):
 
 
 
-def refine_library(m_file, assumptions):
+def refine_library(m_file, assumptions, post_assertion):
     m_file_copy = copy.deepcopy(m_file)
     parser = c_parser.CParser()
     for assume in assumptions:
@@ -115,6 +122,20 @@ def refine_library(m_file, assumptions):
         ass_node = (parser.parse(hackie_assume).ext[0].init)
         new_expr = c_ast.If(cond=ass_node, iftrue=c_ast.Return(0), iffalse=None)
         m_file_copy.ext[1].body.block_items.insert(0, new_expr)
+
+    if (len(post_assertion) >0):
+        #remove existing assertions:
+        for index in range(len(m_file_copy.ext[1].body.block_items)-1, 0, -1):
+            node = m_file_copy.ext[1].body.block_items[index]
+            if isinstance(node, c_ast.FuncCall):
+                if (node.name.name == "assert"):
+                    m_file_copy.ext[1].body.block_items.pop(index)
+                    continue
+            break
+
+        hackie_post_assertion_string = "int a = (" + ('|'.join(list(post_assertion))).replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
+        assertion_node = (parser.parse(hackie_post_assertion_string).ext[0].init)
+        m_file_copy.ext[1].body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="assert"), args=assertion_node))
 
     generator = c_generator.CGenerator()
     result_string = generator.visit(m_file_copy)
@@ -124,10 +145,10 @@ def refine_library(m_file, assumptions):
     return 0;
 
 
-def restrict_libraries(lib, pe, client, old_lib_string=None, new_lib_string=None, main_func = None, merged_outfile ="client_merged.c" , option="CBMC"):
+def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string=None, main_func = None, merged_outfile ="client_merged.c" , option="CBMC"):
     global  Return_bindings
-
-
+    klee_file = None
+    lib = lib_file.ext[1]
     #create base line library version
     if (old_lib_string is None or new_lib_string is None):
         lib_copy = copy.deepcopy(lib)
@@ -139,13 +160,14 @@ def restrict_libraries(lib, pe, client, old_lib_string=None, new_lib_string=None
         lib_new.decl.name += '_new'
         lib_new.decl.type.type.declname += "_new"
         generator = c_generator.CGenerator()
-        old_lib_string = generator.visit(lib_old)
-        new_lib_string = generator.visit(lib_new)
+        old_lib_string_orig = generator.visit(lib_old)
+        new_lib_string_orig = generator.visit(lib_new)
 
 
     #generate assumptions and effects
-    assumption_exp_new = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%")+ "){"
-    assumption_exp_old = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%")+ "){"
+    assumption_exp_new = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%").replace("&","&&")+ "){"
+    assumption_exp_old = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%").replace("&","&&")+ "){"
+
     ret_binding = Return_bindings.get(lib, None)
     if (ret_binding is None):
         for key, value in pe.get_effect_old().items():
@@ -154,18 +176,24 @@ def restrict_libraries(lib, pe, client, old_lib_string=None, new_lib_string=None
         for key, value in pe.get_effect_new().items():
             assumption_exp_old += "return " + value.replace("false", "0").replace("true", "1").replace((key+" ="),'').replace("bvsrem", "%") + ";"
 
-        old_lib_string = old_lib_string.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 0;\n")
-        new_lib_string = new_lib_string.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 0;\n")
+        old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 0;\n")
+        new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 0;\n")
     else:
+        recorded_var = set()
         new_else_branch = ""
+        klee_init_new = ""
         for key, value in pe.get_effect_new().items():
             ret_name = ret_binding.get(key, key)
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
             assumption_exp_new +=  "\n" + ret_name + " = " + value.replace("true", "1").replace((key + " ="), '').replace("bvsrem","%") + ";"
             new_else_branch+= "\n" + ret_name + " =  0;"
+            if ret_name not in recorded_var:
+                klee_init_new+= "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name )
+                recorded_var.add(ret_name)
         assumption_exp_new += "\n} else \n{ " + new_else_branch + "}\n"
         old_else_branch = ""
+        klee_init_old = ""
         for key, value in pe.get_effect_old().items():
             ret_name = ret_binding.get(key, key)
             if isinstance(ret_name, c_ast.ID):
@@ -174,11 +202,16 @@ def restrict_libraries(lib, pe, client, old_lib_string=None, new_lib_string=None
                                                                                                        '').replace(
                 "bvsrem", "%") + ";"
             old_else_branch += "\n" + ret_name + " =  0;"
+            if ret_name not in recorded_var:
+                klee_init_old += "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name)
+                recorded_var.add(ret_name)
         assumption_exp_old += "\n} else \n{ " + old_else_branch + "}\n"
 
 
-        old_lib_string = old_lib_string.replace("{\n", "{\n" + assumption_exp_new + "}\n")
-        new_lib_string = new_lib_string.replace("{\n", "{\n" + assumption_exp_old + "}\n")
+        old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\n")
+        new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\n")
+        old_lib_klee = "\n" + klee_init_old + "\n"
+        new_lib_klee = "\n" + klee_init_new + "\n"
 
     #create main function for CBMC checkings
     c_file_string =""
@@ -201,17 +234,24 @@ def restrict_libraries(lib, pe, client, old_lib_string=None, new_lib_string=None
     client_string = generator.visit(client)  +"\n";
     if (ret_binding is not None):
         client_string = client_string.replace("lib_old();", assumption_exp_old)
+        klee_client_string = client_string.replace("lib_new();", assumption_exp_new + old_lib_klee + new_lib_klee)
         client_string = client_string.replace("lib_new();", assumption_exp_new)
+        for funcs in lib_file.ext[2:]:
+            client_string+= ("\n" +generator.visit(funcs))
+            klee_client_string+= ("\n" +generator.visit(funcs))
+        klee_file = merged_outfile.rstrip(".c") + "_klee" +".c"
+        with open(klee_file, 'w') as outfile_klee:
+            outfile_klee.write(c_file_string+ klee_client_string)
     c_file_string += client_string
     if (ret_binding is None):
         c_file_string += ((old_lib_string) + "\n")
         c_file_string += ((new_lib_string) +"\n")
     with open(merged_outfile, 'w') as outfile:
         outfile.write(c_file_string)
-    return merged_outfile, old_lib_string, new_lib_string, main_function
+    return merged_outfile, old_lib_string, new_lib_string, main_function, klee_file
 
 
-def write_out_generalizible_client(merged_file, filename):
+def write_out_generalizible_client_imp(merged_file, filename):
     merged_client = merged_file.ext[1]
     old_nodes= []
     new_nodes= []
@@ -225,11 +265,14 @@ def write_out_generalizible_client(merged_file, filename):
         merged_client.decl.type.args.params.append(c_ast.Decl(name=old_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
                                                        type=c_ast.TypeDecl(declname=old_node.name, quals=[], type=c_ast.IdentifierType(['int']))))
         merged_client.body.block_items.remove(old_node)
+        merged_client.body.block_items.insert(0, c_ast.Assignment(op='=', lvalue=c_ast.ID(name=old_node.name), rvalue=constant_zero()))
     for new_node in new_nodes:
         merged_client.decl.type.args.params.append(
             c_ast.Decl(name=new_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
                        type=c_ast.TypeDecl(declname=new_node.name, quals=[], type=c_ast.IdentifierType(['int']))))
         merged_client.body.block_items.remove(new_node)
+        merged_client.body.block_items.insert(0, c_ast.Assignment(op='=', lvalue=c_ast.ID(name=new_node.name),
+                                                                  rvalue=constant_zero()))
 
 
     generator = c_generator.CGenerator()
@@ -237,6 +280,13 @@ def write_out_generalizible_client(merged_file, filename):
     with open(filename, "w") as merged_g_file:
         merged_g_file.write(generator.visit(merged_client))
     return merged_client
+
+def write_out_generalizible_client(input_file, outputfile):
+    client_file = parse_file(input_file, use_cpp=True,
+                         cpp_path='gcc',
+                         cpp_args=['-E', r'-Iutils/fake_libc_include'])
+    return write_out_generalizible_lib(client_file, outputfile)
+
 
 def write_out_generalizible_lib(merged_file, filename):
     new_merged_file = copy.deepcopy(merged_file)
@@ -253,11 +303,17 @@ def write_out_generalizible_lib(merged_file, filename):
         merged_lib.decl.type.args.params.append(c_ast.Decl(name=old_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
                                                        type=c_ast.TypeDecl(declname=old_node.name, quals=[], type=c_ast.IdentifierType(['int']))))
         merged_lib.body.block_items.remove(old_node)
+        merged_lib.body.block_items.insert(0, c_ast.Assignment(op='=', lvalue=c_ast.ID(name=old_node.name),
+                                                                  rvalue=constant_zero()))
+
     for new_node in new_nodes:
         merged_lib.decl.type.args.params.append(
             c_ast.Decl(name=new_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
                        type=c_ast.TypeDecl(declname=new_node.name, quals=[], type=c_ast.IdentifierType(['int']))))
         merged_lib.body.block_items.remove(new_node)
+        merged_lib.body.block_items.insert(0, c_ast.Assignment(op='=', lvalue=c_ast.ID(name=new_node.name),
+                                                                  rvalue=constant_zero()))
+
 
 
     generator = c_generator.CGenerator()

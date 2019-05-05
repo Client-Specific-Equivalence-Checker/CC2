@@ -201,14 +201,27 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                     c_node = node
                     child_node = node
                     while c_node is not None:
-                        loop_type_check = isinstance(c_node, c_ast.While) or isinstance(c_node,
-                                                                                        c_ast.For) or isinstance(c_node,
+                        pure_loop_check = isinstance(c_node, c_ast.While) or isinstance(c_node,
+                                                                                        c_ast.For)
+                        loop_type_check = pure_loop_check or isinstance(c_node,
                                                                                                                  c_ast.DoWhile)
                         if loop_type_check or c_node == self.client:
                             c_object = self.node_dict.get(c_node, None)
                             if (c_object is None):
                                 if (loop_type_check):
-                                    c_object = self.create_ClientContextNode(child_node, c_node, None, c_node, l_object)
+                                    if (isinstance(c_node, c_ast.While)):
+                                        child_node_with_loop_context = c_ast.If(cond=c_node.cond, iftrue=child_node, iffalse=None)
+                                        c_object = self.create_ClientContextNode(child_node_with_loop_context, c_node, None, c_node,
+                                                                                 l_object)
+                                    elif isinstance(c_node, c_ast.For):
+                                        child_node_with_loop_context = c_ast.If(cond=c_node.cond, iftrue=child_node,
+                                                                                iffalse=None)
+                                        child_node_with_loop_context_complete = c_ast.Compound(block_items=[c_node.init,child_node_with_loop_context ])
+                                        c_object = self.create_ClientContextNode(child_node_with_loop_context_complete, c_node,
+                                                                                 None, c_node,
+                                                                                 l_object)
+                                    else:
+                                        c_object = self.create_ClientContextNode(child_node, c_node, None, c_node, l_object)
                                 else:
                                     c_object = self.create_ClientContextNode(c_node, c_node, None, c_node, l_object)
                                 self.node_dict[c_node]=c_object
