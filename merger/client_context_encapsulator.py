@@ -99,6 +99,8 @@ class DUVisitor(c_ast.NodeVisitor):
             return
         if isinstance(target, str):
             self.define.add(target)
+        if isinstance(target.name, str):
+            self.define.add(target.name)
         else:
             IDH = IDhunter()
             IDH.visit(target)
@@ -143,6 +145,8 @@ class DUVisitor(c_ast.NodeVisitor):
     def visit_Decl(self, node):
         if isinstance(node, c_ast.Decl):
             self.add_to_define(node)
+            if node.type is not None and isinstance(node.type, c_ast.FuncDecl):
+                self.visit(node.type)
             if node.init is not None:
                 self.check_and_refine(node.init)
 

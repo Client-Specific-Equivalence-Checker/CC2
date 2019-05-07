@@ -4,6 +4,8 @@ from pycparser import parse_file, c_generator, c_ast, c_parser
 from merger import cex_parser, generalizer, client_context_encapsulator
 import copy
 import re
+import sys
+sys.setrecursionlimit(3000)
 
 impacted = False
 old_touched = set()
@@ -61,10 +63,10 @@ def main():
                 write_out_generalizible_lib(merged_lib, "merged_g.c")
                 pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
                 assumption_set.add(pe.get_parition())
-                restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file = restrict_libraries(merged_lib, pe, immediate_caller.node)
+                restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, inlined, num_ret = restrict_libraries(merged_lib, pe, immediate_caller.node)
                 carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=args.client)
                 if (len(carg_map.keys())>0):
-                    print ("Find counter example at immediate caller, now grow")
+                    print ("Find counter example with the current caller, now grow")
                     if immediate_caller.parent is None:
                         print ("Grow out of context, CEX")
                         return
@@ -73,13 +75,14 @@ def main():
                         merged_lib = rewrite_lib_file(immediate_caller.lib_node)
                         immediate_caller = immediate_caller.parent
                         assumption_set=set()
+                        post_assertion_set=set()
                         arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
 
                 else:
                     print ("Iteration %d UNSAT" % iteration_num)
                     if g_klee_file is not None:
                         write_out_generalizible_client(g_klee_file, "client_merged_g.c")
-                        cpe = generalizer.generalize_client("client_merged_g", args.client)
+                        cpe = generalizer.generalize_client("client_merged_g", args.client, inlined, num_ret)
                         if (len(post_assertion_set) == 0):
                             post_assertion_set.update(cpe.get_base_assumption())
                         post_assertion_set.update(cpe.get_post_assertion_list())
@@ -120,7 +123,7 @@ def refine_library(m_file, assumptions, post_assertion):
     for assume in assumptions:
         hackie_assume = "int a = (" + assume.replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
         ass_node = (parser.parse(hackie_assume).ext[0].init)
-        new_expr = c_ast.If(cond=ass_node, iftrue=c_ast.Return(0), iffalse=None)
+        new_expr = c_ast.If(cond=ass_node, iftrue=c_ast.Return(expr=constant_zero()), iffalse=None)
         m_file_copy.ext[1].body.block_items.insert(0, new_expr)
 
     if (len(post_assertion) >0):
@@ -137,6 +140,17 @@ def refine_library(m_file, assumptions, post_assertion):
         assertion_node = (parser.parse(hackie_post_assertion_string).ext[0].init)
         m_file_copy.ext[1].body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="assert"), args=assertion_node))
 
+    #check if there's any undefined variables
+    DUV = client_context_encapsulator.DUVisitor()
+    DUV.visit(m_file_copy.ext[1])
+    for missing_def in DUV.missing_define:
+        m_file_copy.ext[1].body.block_items.insert(0,
+            c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
+                       bitsize=None,
+                       type=c_ast.TypeDecl(declname=missing_def, quals=[],
+                                           type=c_ast.IdentifierType(['int']))))
+
+
     generator = c_generator.CGenerator()
     result_string = generator.visit(m_file_copy)
     print (result_string)
@@ -149,6 +163,8 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
     global  Return_bindings
     klee_file = None
     lib = lib_file.ext[1]
+    is_inlined = False
+    num_ret = 0;
     #create base line library version
     if (old_lib_string is None or new_lib_string is None):
         lib_copy = copy.deepcopy(lib)
@@ -165,19 +181,23 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
 
 
     #generate assumptions and effects
-    assumption_exp_new = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%").replace("&","&&")+ "){"
-    assumption_exp_old = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%").replace("&","&&")+ "){"
+    assumption_exp_new = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_new =", '').replace("bvsrem", "%")+ "){\n"
+    assumption_exp_old = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%")+ "){\n"
 
     ret_binding = Return_bindings.get(lib, None)
+    num_ret = len(pe.get_effect_old().keys())
     if (ret_binding is None):
-        for key, value in pe.get_effect_old().items():
+        #klee_assumption_string_new= assumption_exp_new
+        for key, value in pe.get_effect_new().items():
             assumption_exp_new += "return " + value.replace("true","1").replace( (key+" ="), '').replace("bvsrem", "%") + ";\n"
 
-        for key, value in pe.get_effect_new().items():
+
+        #klee_assumption_string_old = assumption_exp_old
+        for key, value in pe.get_effect_old().items():
             assumption_exp_old += "return " + value.replace("false", "0").replace("true", "1").replace((key+" ="),'').replace("bvsrem", "%") + ";"
 
-        old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 0;\n")
-        new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 0;\n")
+        old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 0;\n")
+        new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 0;\n")
     else:
         recorded_var = set()
         new_else_branch = ""
@@ -242,13 +262,18 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
         klee_file = merged_outfile.rstrip(".c") + "_klee" +".c"
         with open(klee_file, 'w') as outfile_klee:
             outfile_klee.write(c_file_string+ klee_client_string)
+        is_inlined = True
     c_file_string += client_string
     if (ret_binding is None):
+        klee_file = merged_outfile.rstrip(".c") + "_klee" + ".c"
         c_file_string += ((old_lib_string) + "\n")
         c_file_string += ((new_lib_string) +"\n")
+        is_inlined = False
+        with open(klee_file, 'w') as outfile_klee:
+            outfile_klee.write(c_file_string)
     with open(merged_outfile, 'w') as outfile:
         outfile.write(c_file_string)
-    return merged_outfile, old_lib_string, new_lib_string, main_function, klee_file
+    return merged_outfile, old_lib_string, new_lib_string, main_function, klee_file, is_inlined, num_ret
 
 
 def write_out_generalizible_client_imp(merged_file, filename):
@@ -285,11 +310,14 @@ def write_out_generalizible_client(input_file, outputfile):
     client_file = parse_file(input_file, use_cpp=True,
                          cpp_path='gcc',
                          cpp_args=['-E', r'-Iutils/fake_libc_include'])
-    return write_out_generalizible_lib(client_file, outputfile)
+    return write_out_generalizible_lib(client_file, outputfile, should_copy =False)
 
 
-def write_out_generalizible_lib(merged_file, filename):
-    new_merged_file = copy.deepcopy(merged_file)
+def write_out_generalizible_lib(merged_file, filename, should_copy = True):
+    if should_copy:
+        new_merged_file = copy.deepcopy(merged_file)
+    else:
+        new_merged_file = merged_file
     merged_lib = new_merged_file.ext[1]
     old_nodes= []
     new_nodes= []
