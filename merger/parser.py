@@ -48,6 +48,7 @@ def main():
     path_new = args.new
     assumption_set = set()
     post_assertion_set = set()
+    pre_assumption_set = set()
     if path.isfile(path_old) and path.isfile(path_new):
         base_lib_file, client_seq, merged_client, old_lib, m_file = merge_files (path_old, path_new, args.client, args.lib)
         iteration_num = 0
@@ -63,7 +64,8 @@ def main():
                 write_out_generalizible_lib(merged_lib, "merged_g.c")
                 pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
                 assumption_set.add(pe.get_parition())
-                restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, inlined, num_ret = restrict_libraries(merged_lib, pe, immediate_caller.node)
+                restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
+                    inlined, num_ret, param_list = restrict_libraries(merged_lib, pe, immediate_caller.node)
                 carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=args.client)
                 if (len(carg_map.keys())>0):
                     print ("Find counter example with the current caller, now grow")
@@ -76,17 +78,22 @@ def main():
                         immediate_caller = immediate_caller.parent
                         assumption_set=set()
                         post_assertion_set=set()
+                        pre_assumption_set = set()
                         arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
 
                 else:
                     print ("Iteration %d UNSAT" % iteration_num)
                     if g_klee_file is not None:
-                        write_out_generalizible_client(g_klee_file, "client_merged_g.c")
+                        write_out_generalizible_client(g_klee_file, "client_merged_g.c", False)
                         cpe = generalizer.generalize_client("client_merged_g", args.client, inlined, num_ret)
                         if (len(post_assertion_set) == 0):
                             post_assertion_set.update(cpe.get_base_assumption())
                         post_assertion_set.update(cpe.get_post_assertion_list())
-                    refine_library(merged_lib, assumption_set, post_assertion_set)
+                    if pre_cond_file is not None and len(pre_assumption_set) == 0:
+                        write_out_generalizible_client(pre_cond_file, "client_merged_pre_cond_g.c", True)
+                        ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret, param_list)
+                        pre_assumption_set.update(ppe.get_preconditions())
+                    refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
                     arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
 
             #We have proved CSE for a lib call-site, mark all verified callers and move on
@@ -117,7 +124,7 @@ def rewrite_lib_file(new_lib, outfile = "merged.c"):
 
 
 
-def refine_library(m_file, assumptions, post_assertion):
+def refine_library(m_file, assumptions, post_assertion, pre_assumptions):
     m_file_copy = copy.deepcopy(m_file)
     parser = c_parser.CParser()
     for assume in assumptions:
@@ -135,6 +142,10 @@ def refine_library(m_file, assumptions, post_assertion):
                     m_file_copy.ext[1].body.block_items.pop(index)
                     continue
             break
+        hackie_pre_assumption_string ="int a = !(" + ('|'.join(list(pre_assumptions))).replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
+        pre_ass_node = (parser.parse(hackie_pre_assumption_string).ext[0].init)
+        pre_ass_expr =  c_ast.If(cond=pre_ass_node, iftrue=c_ast.Return(expr=constant_zero()), iffalse=None)
+        m_file_copy.ext[1].body.block_items.insert(0, pre_ass_expr)
 
         hackie_post_assertion_string = "int a = (" + ('|'.join(list(post_assertion))).replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
         assertion_node = (parser.parse(hackie_post_assertion_string).ext[0].init)
@@ -162,6 +173,7 @@ def refine_library(m_file, assumptions, post_assertion):
 def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string=None, main_func = None, merged_outfile ="client_merged.c" , option="CBMC"):
     global  Return_bindings
     klee_file = None
+    pre_cond_file = None
     lib = lib_file.ext[1]
     is_inlined = False
     num_ret = 0;
@@ -178,7 +190,14 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
         generator = c_generator.CGenerator()
         old_lib_string_orig = generator.visit(lib_old)
         new_lib_string_orig = generator.visit(lib_new)
+        #create invo template
+        param_list = []
+        for lib_arg in lib_old.decl.type.args.params:
+            if isinstance(lib_arg, c_ast.Decl):
+                param_list.append(c_ast.ID(name=lib_arg.name))
 
+        lib_old_invo = c_ast.FuncCall(name=c_ast.ID(name=lib_old.decl.name), args=c_ast.ExprList(exprs=param_list))
+        lib_new_invo = c_ast.FuncCall(name=c_ast.ID(name=lib_new.decl.name), args=c_ast.ExprList(exprs=param_list))
 
     #generate assumptions and effects
     assumption_exp_new = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_new =", '').replace("bvsrem", "%")+ "){\n"
@@ -253,18 +272,31 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
         c_file_string += ((generator.visit(main_function))+"\n")
     client_string = generator.visit(client)  +"\n";
     if (ret_binding is not None):
+        #prepare string for pre-condition mining
+        pre_client_string = client_string.replace("lib_old();", "int temp_old = " + generator.visit(lib_old_invo)+";").\
+            replace("lib_new();",  "int temp_new = " + generator.visit(lib_new_invo)+";")
+
         client_string = client_string.replace("lib_old();", assumption_exp_old)
         klee_client_string = client_string.replace("lib_new();", assumption_exp_new + old_lib_klee + new_lib_klee)
         client_string = client_string.replace("lib_new();", assumption_exp_new)
         for funcs in lib_file.ext[2:]:
             client_string+= ("\n" +generator.visit(funcs))
             klee_client_string+= ("\n" +generator.visit(funcs))
+
+        pre_cond_file =  merged_outfile.rstrip(".c") + "_pre_cond" +".c"
+        with open(pre_cond_file, 'w') as pre_condition_file:
+            pre_condition_file.write(c_file_string+ pre_client_string)
+
         klee_file = merged_outfile.rstrip(".c") + "_klee" +".c"
         with open(klee_file, 'w') as outfile_klee:
             outfile_klee.write(c_file_string+ klee_client_string)
         is_inlined = True
     c_file_string += client_string
     if (ret_binding is None):
+        pre_cond_file = merged_outfile.rstrip(".c") + "_pre_cond" + ".c"
+        with open(pre_cond_file, 'w') as pre_condition_file:
+            pre_condition_file.write(c_file_string)
+
         klee_file = merged_outfile.rstrip(".c") + "_klee" + ".c"
         c_file_string += ((old_lib_string) + "\n")
         c_file_string += ((new_lib_string) +"\n")
@@ -273,7 +305,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             outfile_klee.write(c_file_string)
     with open(merged_outfile, 'w') as outfile:
         outfile.write(c_file_string)
-    return merged_outfile, old_lib_string, new_lib_string, main_function, klee_file, is_inlined, num_ret
+    return merged_outfile, old_lib_string, new_lib_string, main_function, klee_file, pre_cond_file, is_inlined, num_ret, param_list
 
 
 def write_out_generalizible_client_imp(merged_file, filename):
@@ -306,14 +338,15 @@ def write_out_generalizible_client_imp(merged_file, filename):
         merged_g_file.write(generator.visit(merged_client))
     return merged_client
 
-def write_out_generalizible_client(input_file, outputfile):
+def write_out_generalizible_client(input_file, outputfile, precondition):
     client_file = parse_file(input_file, use_cpp=True,
                          cpp_path='gcc',
                          cpp_args=['-E', r'-Iutils/fake_libc_include'])
-    return write_out_generalizible_lib(client_file, outputfile, should_copy =False)
+    return write_out_generalizible_lib(client_file, outputfile, should_copy=False, precondition_only=precondition)
 
 
-def write_out_generalizible_lib(merged_file, filename, should_copy = True):
+
+def write_out_generalizible_lib(merged_file, filename, should_copy = True, precondition_only = False):
     if should_copy:
         new_merged_file = copy.deepcopy(merged_file)
     else:
@@ -343,12 +376,51 @@ def write_out_generalizible_lib(merged_file, filename, should_copy = True):
                                                                   rvalue=constant_zero()))
 
 
+    if precondition_only:
+        LV = LastVisitor()
+        LV.visit(merged_lib)
+        LV.work()
+
 
     generator = c_generator.CGenerator()
     new_merged_file.ext.pop(0)
     with open(filename, "w") as merged_g_file:
         merged_g_file.write(generator.visit(new_merged_file))
     return new_merged_file
+
+class LastVisitor(c_ast.NodeVisitor):
+    def __init__(self):
+        self.parent_child = {}
+        self.tobeInsertedAfter = None
+
+    def generic_visit(self, node):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+        for c in node:
+            self.parent_child[c] = node
+            self.visit(c)
+
+    def visit_FuncCall(self, node):
+        if isinstance(node, c_ast.FuncCall):
+            if (node.name.name == "lib_old" or node.name.name == "lib_new"):
+                current_node = node
+                parent = self.parent_child.get(current_node, None)
+                while parent is not None:
+                    if isinstance(parent, c_ast.Compound):
+                        self.tobeInsertedBefore = (parent, parent.block_items.index(current_node))
+                        break
+                    else:
+                        current_node = parent
+                        parent = self.parent_child.get(current_node, None)
+
+    def work(self):
+        if self.tobeInsertedBefore is not None:
+            parent, index = self.tobeInsertedBefore
+            if isinstance(parent, c_ast.Compound):
+                parent.block_items.insert(index+1, c_ast.Return(expr=constant_zero()))
+
+
 
 
 class FuncDefVisitor(c_ast.NodeVisitor):
