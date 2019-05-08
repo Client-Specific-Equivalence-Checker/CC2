@@ -17,6 +17,11 @@ value_copied =set()
 
 Return_bindings = {}
 
+def replace_bit_vector(input):
+            return input.replace("bvsrem", "%").replace("bvslt", "<").replace("bvult","<").\
+                replace("bvsle", "<=").replace("bvule","<=").replace("bvsgt", ">").replace("bvugt", ">").replace("bvsge", ">=").replace("bvuge",">=")
+
+
 def constant_zero():
     return c_ast.Constant(value='0', type='int')
 
@@ -43,6 +48,7 @@ def main():
     parser.add_argument('--old', type=str, dest ='old', default="old.c", help="old source file")
     parser.add_argument('--client', type=str, dest ='client', default="client", help="client function name" )
     parser.add_argument('--lib', type=str, dest='lib', default="lib", help="lib function name")
+    parser.add_argument('--unwind', type=int, dest='unwind', default=100, help="unwind  bound for bounded model checking")
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
@@ -50,7 +56,7 @@ def main():
     post_assertion_set = set()
     pre_assumption_set = set()
     if path.isfile(path_old) and path.isfile(path_new):
-        base_lib_file, client_seq, merged_client, old_lib, m_file = merge_files (path_old, path_new, args.client, args.lib)
+        base_lib_file, client_seq, merged_client, old_lib, m_file, client_name = merge_files (path_old, path_new, args.client, args.lib)
         iteration_num = 0
         MSCs = []
 
@@ -59,14 +65,14 @@ def main():
             if (immediate_caller.checked):
                 continue
             merged_lib = rewrite_lib_file(base_lib_file)
-            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib)
+            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
             while (len(arg_map.keys())>0):
                 write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
                 pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
                 assumption_set.add(pe.get_parition())
                 restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
                     inlined, num_ret, param_list = restrict_libraries(merged_lib, pe, immediate_caller.node)
-                carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=args.client)
+                carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=client_name, unwinds=args.unwind)
                 if (len(carg_map.keys())>0):
                     print ("Find counter example with the current caller, now grow")
                     if immediate_caller.parent is None:
@@ -94,7 +100,7 @@ def main():
                         ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret, param_list, lib_name=args.lib)
                         pre_assumption_set.update(ppe.get_preconditions())
                     refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
-                    arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib)
+                    arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
 
             #We have proved CSE for a lib call-site, mark all verified callers and move on
             immediate_caller.verify_checked()
@@ -128,7 +134,9 @@ def refine_library(m_file, assumptions, post_assertion, pre_assumptions):
     m_file_copy = copy.deepcopy(m_file)
     parser = c_parser.CParser()
     for assume in assumptions:
-        hackie_assume = "int a = (" + assume.replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
+        if len(assume) == 0:
+            assume = "1"
+        hackie_assume = "int a = (" + replace_bit_vector(assume.replace("false", "0").replace("true", "1")) +");"
         ass_node = (parser.parse(hackie_assume).ext[0].init)
         new_expr = c_ast.If(cond=ass_node, iftrue=c_ast.Return(expr=constant_zero()), iffalse=None)
         m_file_copy.ext[1].body.block_items.insert(0, new_expr)
@@ -142,12 +150,12 @@ def refine_library(m_file, assumptions, post_assertion, pre_assumptions):
                     m_file_copy.ext[1].body.block_items.pop(index)
                     continue
             break
-        hackie_pre_assumption_string ="int a = !(" + ('|'.join(list(pre_assumptions))).replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
+        hackie_pre_assumption_string ="int a = !(" + replace_bit_vector(('|'.join(list(pre_assumptions))).replace("false", "0").replace("true", "1")) +");"
         pre_ass_node = (parser.parse(hackie_pre_assumption_string).ext[0].init)
         pre_ass_expr =  c_ast.If(cond=pre_ass_node, iftrue=c_ast.Return(expr=constant_zero()), iffalse=None)
         m_file_copy.ext[1].body.block_items.insert(0, pre_ass_expr)
 
-        hackie_post_assertion_string = "int a = (" + ('|'.join(list(post_assertion))).replace("false", "0").replace("true", "1").replace("bvsrem", "%") +");"
+        hackie_post_assertion_string = "int a = (" + replace_bit_vector(('|'.join(list(post_assertion))).replace("false", "0").replace("true", "1")) +");"
         assertion_node = (parser.parse(hackie_post_assertion_string).ext[0].init)
         m_file_copy.ext[1].body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="assert"), args=assertion_node))
 
@@ -199,21 +207,24 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
         lib_old_invo = c_ast.FuncCall(name=c_ast.ID(name=lib_old.decl.name), args=c_ast.ExprList(exprs=param_list))
         lib_new_invo = c_ast.FuncCall(name=c_ast.ID(name=lib_new.decl.name), args=c_ast.ExprList(exprs=param_list))
 
+    reduced_parition = pe.get_parition()
+    if (len(reduced_parition) == 0 ):
+        reduced_parition = "true"
     #generate assumptions and effects
-    assumption_exp_new = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_new =", '').replace("bvsrem", "%")+ "){\n"
-    assumption_exp_old = "if(" + pe.get_parition().replace("false","0").replace("true","1").replace("ret_old =", '').replace("bvsrem", "%")+ "){\n"
+    assumption_exp_new = "if(" + replace_bit_vector(reduced_parition.replace("false","0").replace("true","1").replace("ret_new =", ''))+ "){\n"
+    assumption_exp_old = "if(" + replace_bit_vector(reduced_parition.replace("false","0").replace("true","1").replace("ret_old =", ''))+ "){\n"
 
     ret_binding = Return_bindings.get(lib, None)
     num_ret = len(pe.get_effect_old().keys())
     if (ret_binding is None):
         #klee_assumption_string_new= assumption_exp_new
         for key, value in pe.get_effect_new().items():
-            assumption_exp_new += "return " + value.replace("true","1").replace( (key+" ="), '').replace("bvsrem", "%") + ";\n"
+            assumption_exp_new += "return " + replace_bit_vector(value.replace("true","1").replace( (key+" ="), '')) + ";\n"
 
 
         #klee_assumption_string_old = assumption_exp_old
         for key, value in pe.get_effect_old().items():
-            assumption_exp_old += "return " + value.replace("false", "0").replace("true", "1").replace((key+" ="),'').replace("bvsrem", "%") + ";"
+            assumption_exp_old += "return " + replace_bit_vector(value.replace("false", "0").replace("true", "1").replace((key+" ="),''))+ ";"
 
         old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 0;\n")
         new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 0;\n")
@@ -225,7 +236,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             ret_name = ret_binding.get(key, key)
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
-            assumption_exp_new +=  "\n" + ret_name + " = " + value.replace("true", "1").replace((key + " ="), '').replace("bvsrem","%") + ";"
+            assumption_exp_new +=  "\n" + ret_name + " = " + replace_bit_vector(value.replace("true", "1").replace((key + " ="), '')) + ";"
             new_else_branch+= "\n" + ret_name + " =  0;"
             if ret_name not in recorded_var:
                 klee_init_new+= "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name )
@@ -237,9 +248,8 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             ret_name = ret_binding.get(key, key)
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
-            assumption_exp_old += ret_name + " = " + value.replace("false", "0").replace("true", "1").replace((key + " ="),
-                                                                                                       '').replace(
-                "bvsrem", "%") + ";"
+            assumption_exp_old += ret_name + " = " + replace_bit_vector(value.replace("false", "0").replace("true", "1").replace((key + " ="),
+                                                                                                       '') )+ ";"
             old_else_branch += "\n" + ret_name + " =  0;"
             if ret_name not in recorded_var:
                 klee_init_old += "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name)
@@ -1389,6 +1399,14 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     client_node = client_visitor.container
     client_node_copy = copy.deepcopy(client_node)
     assert not client_node is None, "client does not exist"
+
+    if (client_node.decl.name == "main"):
+        client_name = "CLEVER_client"
+        client_node.decl.name = "CLEVER_client"
+        client_node.decl.type.type.declname = "CLEVER_client"
+    else:
+        client_name = client
+
     changed_clients = client_context_encapsulator.analyze_client(client_node, lib);
 
     client_index = 0;
@@ -1409,7 +1427,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     # new we want to compute the merged client's
     merged_client = version_merge_client(client_node_copy, lib)
     print(generator.visit(merged_client))
-    return m_file, changed_clients, merged_client, old_lib_node, m_file
+    return m_file, changed_clients, merged_client, old_lib_node, m_file, client_name
 
 def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
     lib_old = copy.deepcopy(og_lib_old)
