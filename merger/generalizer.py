@@ -27,7 +27,7 @@ def generalize(source, libname, cex_args):
     print(new_pe.get_effect_old())
     return new_pe
 
-def generalize_client(source, clientname, is_inlined = True, num_ret=1):
+def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name ="lib"):
     makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
@@ -46,7 +46,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1):
         client_file = parse_file(cil_file_name, use_cpp=True,
                                  cpp_path='gcc',
                                  cpp_args=['-E', r'-Iutils/fake_libc_include'])
-        LIV = LibInvocVisitor()
+        LIV = LibInvocVisitor(lib_name)
         LIV.visit(client_file)
         LIV.work()
         generator = c_generator.CGenerator()
@@ -62,7 +62,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1):
     print(new_pe.get_client_specific_assertions())
     return new_pe
 
-def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[]):
+def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[] , lib_name="lib"):
     makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
@@ -75,7 +75,7 @@ def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_
                              cpp_args=['-E', r'-Iutils/fake_libc_include'])
     KEV = KleeSymbolExternalize("_CLEVER_EXT")
     KEV.visit(client_file)
-    LIPV = LibPreInvoVisitor(arg_list)
+    LIPV = LibPreInvoVisitor(arg_list, lib_name)
     LIPV.visit(client_file)
     LIPV.work()
     generator = c_generator.CGenerator()
@@ -105,11 +105,14 @@ class KleeSymbolExternalize(c_ast.NodeVisitor):
 
 
 class LibPreInvoVisitor(c_ast.NodeVisitor):
-    def __init__(self, arg_list):
+    def __init__(self, arg_list, lib_name):
         self.parent_child = {}
         self.tobeInsertedBefore = []
         self.invoc = []
         self.arg_list = arg_list
+        self.lib_name = lib_name
+        self.old_hit = False
+        self.new_hit = False
 
     def generic_visit(self, node):
         """ Called if no explicit visitor function exists for a
@@ -120,23 +123,28 @@ class LibPreInvoVisitor(c_ast.NodeVisitor):
             self.visit(c)
 
     def visit_FuncCall(self,node):
-        if isinstance(node, c_ast.FuncCall):
-            if (node.name.name == "lib_old" or node.name.name == "lib_new"):
-                post_fix = node.name.name[4:]
-                parent = self.parent_child.get(node, None)
-                if parent is not None and isinstance(parent, c_ast.Assignment):
-                    grandparent = self.parent_child.get(parent, None)
-                    if grandparent is not None and isinstance(grandparent, c_ast.Compound):
-                        for i in range(len(node.args.exprs)):
-                            input_variable_name = "input_{d}_".format(d=self.arg_list[i].name)+post_fix
-                            input_variable = c_ast.ID(name="input_{d}_".format(d=self.arg_list[i].name)+post_fix)
-                            self.tobeInsertedBefore.append((grandparent, parent, c_ast.Decl(name=input_variable_name, quals=[], storage=[], init=None, funcspec=[],
-                       bitsize=None,
-                       type=c_ast.TypeDecl(declname=input_variable_name, quals=[],
-                                           type=c_ast.IdentifierType(['int'])))))
-                            self.tobeInsertedBefore.append((grandparent, parent, make_klee_symbolic(input_variable_name, input_variable_name)))
-                            self.tobeInsertedBefore.append((grandparent, parent, c_ast.Assignment(op='=',lvalue=input_variable, rvalue= node.args.exprs[i])))
-                            self.invoc.append((grandparent, parent))
+        if not (self.old_hit and self.new_hit):
+            if isinstance(node, c_ast.FuncCall):
+                if (node.name.name ==  (self.lib_name + "_old") or node.name.name ==  (self.lib_name + "_new")):
+                    post_fix = node.name.name[4:]
+                    parent = self.parent_child.get(node, None)
+                    if parent is not None and isinstance(parent, c_ast.Assignment):
+                        if node.name.name == (self.lib_name + "_old"):
+                            self.old_hit = True
+                        elif node.name.name == (self.lib_name + "_new"):
+                            self.new_hit = True
+                        grandparent = self.parent_child.get(parent, None)
+                        if grandparent is not None and isinstance(grandparent, c_ast.Compound):
+                            for i in range(len(node.args.exprs)):
+                                input_variable_name = "input_{d}_".format(d=self.arg_list[i].name)+post_fix
+                                input_variable = c_ast.ID(name="input_{d}_".format(d=self.arg_list[i].name)+post_fix)
+                                self.tobeInsertedBefore.append((grandparent, parent, c_ast.Decl(name=input_variable_name, quals=[], storage=[], init=None, funcspec=[],
+                           bitsize=None,
+                           type=c_ast.TypeDecl(declname=input_variable_name, quals=[],
+                                               type=c_ast.IdentifierType(['int'])))))
+                                self.tobeInsertedBefore.append((grandparent, parent, make_klee_symbolic(input_variable_name, input_variable_name)))
+                                self.tobeInsertedBefore.append((grandparent, parent, c_ast.Assignment(op='=',lvalue=input_variable, rvalue= node.args.exprs[i])))
+                                self.invoc.append((grandparent, parent))
 
 
     def work(self):
@@ -156,9 +164,10 @@ class LibPreInvoVisitor(c_ast.NodeVisitor):
 
 
 class LibInvocVisitor(c_ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, lib_name):
         self.parent_child = {}
         self.tobeInserted=[]
+        self.lib_name = lib_name
 
     def generic_visit(self, node):
         """ Called if no explicit visitor function exists for a
@@ -170,7 +179,7 @@ class LibInvocVisitor(c_ast.NodeVisitor):
 
     def visit_FuncCall(self,node):
         if isinstance(node, c_ast.FuncCall):
-            if (node.name.name == "lib_old" or node.name.name == "lib_new"):
+            if (node.name.name == (self.lib_name+ "_old") or node.name.name == (self.lib_name + "_new")):
                 post_fix = node.name.name[4:]
                 parent = self.parent_child.get(node, None)
                 if parent is not None and isinstance(parent, c_ast.Assignment):

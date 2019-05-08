@@ -59,9 +59,9 @@ def main():
             if (immediate_caller.checked):
                 continue
             merged_lib = rewrite_lib_file(base_lib_file)
-            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
+            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib)
             while (len(arg_map.keys())>0):
-                write_out_generalizible_lib(merged_lib, "merged_g.c")
+                write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
                 pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
                 assumption_set.add(pe.get_parition())
                 restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
@@ -84,17 +84,17 @@ def main():
                 else:
                     print ("Iteration %d UNSAT" % iteration_num)
                     if g_klee_file is not None:
-                        write_out_generalizible_client(g_klee_file, "client_merged_g.c", False)
-                        cpe = generalizer.generalize_client("client_merged_g", args.client, inlined, num_ret)
+                        write_out_generalizible_client(g_klee_file, "client_merged_g.c", False, lib_name=args.lib)
+                        cpe = generalizer.generalize_client("client_merged_g", args.client, inlined, num_ret, lib_name=args.lib)
                         if (len(post_assertion_set) == 0):
                             post_assertion_set.update(cpe.get_base_assumption())
                         post_assertion_set.update(cpe.get_post_assertion_list())
                     if pre_cond_file is not None and len(pre_assumption_set) == 0:
-                        write_out_generalizible_client(pre_cond_file, "client_merged_pre_cond_g.c", True)
-                        ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret, param_list)
+                        write_out_generalizible_client(pre_cond_file, "client_merged_pre_cond_g.c", True, lib_name=args.lib)
+                        ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret, param_list, lib_name=args.lib)
                         pre_assumption_set.update(ppe.get_preconditions())
                     refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
-                    arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
+                    arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib)
 
             #We have proved CSE for a lib call-site, mark all verified callers and move on
             immediate_caller.verify_checked()
@@ -338,15 +338,15 @@ def write_out_generalizible_client_imp(merged_file, filename):
         merged_g_file.write(generator.visit(merged_client))
     return merged_client
 
-def write_out_generalizible_client(input_file, outputfile, precondition):
+def write_out_generalizible_client(input_file, outputfile, precondition, lib_name="lib"):
     client_file = parse_file(input_file, use_cpp=True,
                          cpp_path='gcc',
                          cpp_args=['-E', r'-Iutils/fake_libc_include'])
-    return write_out_generalizible_lib(client_file, outputfile, should_copy=False, precondition_only=precondition)
+    return write_out_generalizible_lib(client_file, outputfile, should_copy=False, precondition_only=precondition, lib_name =lib_name)
 
 
 
-def write_out_generalizible_lib(merged_file, filename, should_copy = True, precondition_only = False):
+def write_out_generalizible_lib(merged_file, filename, should_copy = True, precondition_only = False, lib_name="lib"):
     if should_copy:
         new_merged_file = copy.deepcopy(merged_file)
     else:
@@ -377,7 +377,7 @@ def write_out_generalizible_lib(merged_file, filename, should_copy = True, preco
 
 
     if precondition_only:
-        LV = LastVisitor()
+        LV = LastVisitor(lib_name)
         LV.visit(merged_lib)
         LV.work()
 
@@ -389,9 +389,12 @@ def write_out_generalizible_lib(merged_file, filename, should_copy = True, preco
     return new_merged_file
 
 class LastVisitor(c_ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, lib_name):
         self.parent_child = {}
         self.tobeInsertedAfter = None
+        self.old_hit = False
+        self.new_hit = False
+        self.lib_name = lib_name
 
     def generic_visit(self, node):
         """ Called if no explicit visitor function exists for a
@@ -402,21 +405,26 @@ class LastVisitor(c_ast.NodeVisitor):
             self.visit(c)
 
     def visit_FuncCall(self, node):
-        if isinstance(node, c_ast.FuncCall):
-            if (node.name.name == "lib_old" or node.name.name == "lib_new"):
-                current_node = node
-                parent = self.parent_child.get(current_node, None)
-                while parent is not None:
-                    if isinstance(parent, c_ast.Compound):
-                        self.tobeInsertedBefore = (parent, parent.block_items.index(current_node))
-                        break
-                    else:
-                        current_node = parent
-                        parent = self.parent_child.get(current_node, None)
+        if not (self.old_hit and self.new_hit):
+            if isinstance(node, c_ast.FuncCall):
+                if (node.name.name == (self.lib_name + "_old") or node.name.name == (self.lib_name + "_new")):
+                    if node.name.name == (self.lib_name + "_old"):
+                        self.old_hit = True
+                    if node.name.name == (self.lib_name + "_new"):
+                        self.new_hit = True
+                    current_node = node
+                    parent = self.parent_child.get(current_node, None)
+                    while parent is not None:
+                        if isinstance(parent, c_ast.Compound):
+                            self.tobeInsertedAfter = (parent, parent.block_items.index(current_node))
+                            break
+                        else:
+                            current_node = parent
+                            parent = self.parent_child.get(current_node, None)
 
     def work(self):
-        if self.tobeInsertedBefore is not None:
-            parent, index = self.tobeInsertedBefore
+        if self.tobeInsertedAfter is not None:
+            parent, index = self.tobeInsertedAfter
             if isinstance(parent, c_ast.Compound):
                 parent.block_items.insert(index+1, c_ast.Return(expr=constant_zero()))
 
