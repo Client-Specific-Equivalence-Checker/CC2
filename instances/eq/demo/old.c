@@ -1,9 +1,10 @@
 int foo(int a, int b);
 
-int client(int n ) {
+int client(int n) {
     int count = 0;
     while (n >= 1000){
-        count = lib(n);
+        n = n /1000;
+        count+= (lib(n));
         count += 3;
     }
     int digit = count + lib(n);

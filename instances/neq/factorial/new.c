@@ -1,9 +1,11 @@
 int lib(int n){
+    int result;
     if(n <= 0){
-        return 1;
+        result =  1;
     }else{
-        return n * lib(n-1);
+        result =  n * lib(n-1);
     }
+    return result;
 }
 
 int factorial(int x){

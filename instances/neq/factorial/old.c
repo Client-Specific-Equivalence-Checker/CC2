@@ -1,4 +1,5 @@
 int lib(int n){
+    int result;
     if(n > 0){
         int acc = 1;
         int x = 1;
@@ -6,9 +7,11 @@ int lib(int n){
             acc = acc * x;
             x = x+1;
         }
-        return acc;
+        result= acc;
+    }else{
+    result =  0;
     }
-    return 0;
+    return result;
 }
 
 
