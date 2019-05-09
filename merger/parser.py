@@ -1,7 +1,7 @@
 import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast, c_parser
-from merger import cex_parser, generalizer, client_context_encapsulator
+from merger import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser
 import copy
 import re
 import sys
@@ -42,19 +42,40 @@ def clear_global():
     value_copied = set()
     return
 
+def get_args_from_lib_file(node):
+    signature_list = []
+    lib_node = node.ext[1]
+    for arg in lib_node.decl.type.args.params:
+        if isinstance(arg, c_ast.Decl):
+            signature_list.append(arg.name)
+    return signature_list
+
+
+def parse_name_from_decl_list(nodes):
+    signature_list =[]
+    for arg in nodes:
+        if isinstance(arg, c_ast.ID) or isinstance(arg, c_ast.Decl):
+            signature_list.append(arg.name)
+    return signature_list
+
+
 def main():
+    SEAHORN = "SEAHORN"
     parser = argparse.ArgumentParser()
     parser.add_argument('--new', type=str, dest='new', default="new.c", help ="new source file" )
     parser.add_argument('--old', type=str, dest ='old', default="old.c", help="old source file")
     parser.add_argument('--client', type=str, dest ='client', default="client", help="client function name" )
     parser.add_argument('--lib', type=str, dest='lib', default="lib", help="lib function name")
     parser.add_argument('--unwind', type=int, dest='unwind', default=100, help="unwind  bound for bounded model checking")
+    parser.add_argument('--engine', type=str, dest='engine', default="CBMC", help="select a verification backend engine "
+                                                                                  "from CBMC, SEAHORN or KLEE")
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
     assumption_set = set()
     post_assertion_set = set()
     pre_assumption_set = set()
+    engine = args.engine
     if path.isfile(path_old) and path.isfile(path_new):
         base_lib_file, client_seq, merged_client, old_lib, m_file, client_name = merge_files (path_old, path_new, args.client, args.lib)
         iteration_num = 0
@@ -65,14 +86,22 @@ def main():
             if (immediate_caller.checked):
                 continue
             merged_lib = rewrite_lib_file(base_lib_file)
-            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
+            if (engine == SEAHORN):
+                arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib)
+            else:
+                arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
             while (len(arg_map.keys())>0):
                 write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
                 pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
                 assumption_set.add(pe.get_parition())
                 restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
-                    inlined, num_ret, param_list = restrict_libraries(merged_lib, pe, immediate_caller.node)
-                carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=client_name, unwinds=args.unwind)
+                    inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node)
+                if (engine == SEAHORN):
+                    carg_map, carg_list = seahorn_cex_parser.launch_seahorn_cex(restricted_c_file,
+                                                                              parse_name_from_decl_list(client_params),
+                                                                              library=client_name)
+                else:
+                    carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=client_name, unwinds=args.unwind)
                 if (len(carg_map.keys())>0):
                     print ("Find counter example with the current caller, now grow")
                     if immediate_caller.parent is None:
@@ -85,7 +114,14 @@ def main():
                         assumption_set=set()
                         post_assertion_set=set()
                         pre_assumption_set = set()
-                        arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c")
+                        if (engine == SEAHORN):
+                            arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c",
+                                                                                      get_args_from_lib_file(
+                                                                                          merged_lib),
+                                                                                      library=args.lib)
+                        else:
+                            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib,
+                                                                           unwinds=args.unwind)
 
                 else:
                     print ("Iteration %d UNSAT" % iteration_num)
@@ -100,7 +136,10 @@ def main():
                         ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret, param_list, lib_name=args.lib)
                         pre_assumption_set.update(ppe.get_preconditions())
                     refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
-                    arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
+                    if (engine == SEAHORN):
+                        arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib)
+                    else:
+                        arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
 
             #We have proved CSE for a lib call-site, mark all verified callers and move on
             immediate_caller.verify_checked()
@@ -172,7 +211,7 @@ def refine_library(m_file, assumptions, post_assertion, pre_assumptions):
 
     generator = c_generator.CGenerator()
     result_string = generator.visit(m_file_copy)
-    print (result_string)
+    #print (result_string)
     with open("merged.c", 'w') as merged_out:
         merged_out.write(result_string)
     return 0;
@@ -226,8 +265,8 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
         for key, value in pe.get_effect_old().items():
             assumption_exp_old += "return " + replace_bit_vector(value.replace("false", "0").replace("true", "1").replace((key+" ="),''))+ ";"
 
-        old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 0;\n")
-        new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 0;\n")
+        old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 99999;\n")
+        new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 99999;\n")
     else:
         recorded_var = set()
         new_else_branch = ""
@@ -237,7 +276,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
             assumption_exp_new +=  "\n" + ret_name + " = " + replace_bit_vector(value.replace("true", "1").replace((key + " ="), '')) + ";"
-            new_else_branch+= "\n" + ret_name + " =  0;"
+            new_else_branch+= "\n" + ret_name + " =  99999;"
             if ret_name not in recorded_var:
                 klee_init_new+= "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name )
                 recorded_var.add(ret_name)
@@ -250,7 +289,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
                 ret_name = ret_name.name
             assumption_exp_old += ret_name + " = " + replace_bit_vector(value.replace("false", "0").replace("true", "1").replace((key + " ="),
                                                                                                        '') )+ ";"
-            old_else_branch += "\n" + ret_name + " =  0;"
+            old_else_branch += "\n" + ret_name + " =  99999;"
             if ret_name not in recorded_var:
                 klee_init_old += "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name)
                 recorded_var.add(ret_name)
@@ -315,7 +354,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             outfile_klee.write(c_file_string)
     with open(merged_outfile, 'w') as outfile:
         outfile.write(c_file_string)
-    return merged_outfile, old_lib_string, new_lib_string, main_function, klee_file, pre_cond_file, is_inlined, num_ret, param_list
+    return merged_outfile, old_lib_string, new_lib_string, main_function, klee_file, pre_cond_file, is_inlined, num_ret, param_list, params
 
 
 def write_out_generalizible_client_imp(merged_file, filename):
@@ -1392,7 +1431,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
         main_function.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name =lib), args=c_ast.ExprList(exprs = arg_list)))
         m_file = c_ast.FileAST(ext=[main_function, merged_lib])
 
-    print(generator.visit(merged_lib))
+    #print(generator.visit(merged_lib))
 
     client_visitor = FuncDefVisitor(client)
     client_visitor.visit(old_ast)
@@ -1415,18 +1454,18 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
         while (node_object.parent is not None and not node_object.parent.processed):
             node_object = node_object.parent
             node_object.processed = True
-            print("client " + str(client_index + 1))
-            print(generator.visit(node_object.node))
+            #print("client " + str(client_index + 1))
+            #print(generator.visit(node_object.node))
             if (node_object.node != node_object.lib_node):
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy)
-                print(generator.visit(node_object.lib_node))
-            print ()
+                #print(generator.visit(node_object.lib_node))
+            #print ()
             client_index+=1
 
 
     # new we want to compute the merged client's
     merged_client = version_merge_client(client_node_copy, lib)
-    print(generator.visit(merged_client))
+    #print(generator.visit(merged_client))
     return m_file, changed_clients, merged_client, old_lib_node, m_file, client_name
 
 def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):

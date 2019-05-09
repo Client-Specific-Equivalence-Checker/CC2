@@ -59,7 +59,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     output = result.stderr
     new_pe = PEClientPair(output, num_ret, is_inlined)
-    print(new_pe.get_client_specific_assertions())
+    #print(new_pe.get_client_specific_assertions())
     return new_pe
 
 def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[] , lib_name="lib"):
