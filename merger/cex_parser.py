@@ -111,7 +111,7 @@ def analyze_result(result, library_name, arg_signature):
 
 
 def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=100 , outfile='result.txt', library="lib",
-                    incremental_bound_detection = True):
+                    incremental_bound_detection = True, timer=None):
     if sourcefile:
         if incremental_bound_detection:
             global bound_map
@@ -122,8 +122,12 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                 args = shlex.split(
                     "cbmc %s --unwinding-assertions --unwind %d --slice-formula --smt2 --stack-trace --verbosity 5" % (
                     sourcefile, init_unwind))
+                if timer is not None:
+                    timer.start()
                 proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 result = proc.stdout.readlines()
+                if timer is not None:
+                    timer.end()
                 assertion_passed, unwinding_passed, all_argmap = analyze_result(result, library, lib_args)
                 bound_map[key] = init_unwind
                 if not assertion_passed:
@@ -136,6 +140,8 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
             print("no assertion violated within {bound} ".format(bound=init_unwind))
             return {}, []
         else:
+            if timer is not None:
+                timer.start()
             temp_filename = sourcefile + "_SMTout.smt2"
             args = shlex.split(
                 "cbmc %s --no-unwinding-assertions --unwind %d --smt2 --outfile %s" % (sourcefile, unwinds, temp_filename))
@@ -146,6 +152,8 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
             with open(z3output, "w+") as out:
                 proc = subprocess.Popen(args, stdout=out)
                 out, err = proc.communicate(timeout=180)
+            if timer is not None:
+                timer.end()
             return get_cex(z3output, outfile, library)
 
     elif infile:

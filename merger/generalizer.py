@@ -4,7 +4,7 @@ from pycparser import parse_file, c_generator, c_ast, c_parser
 
 template_string = 'CILLY=cilly\nCLANG=clang-6.0\nKLEE=klee\nCOPTS=-Wno-attributes\nINSTKLEE=/home/fengnick/CLEVER+/klee/_build/instKlee.cma\n# if instKlee has been installed, you can also use:\n# INSTKLEE=instKlee\n\nexport CIL_FEATURES=cil.oneret\n\n.PHONY: all clean\n\n{SOURCENAME}:{SOURCENAME}.c\n\t$(CILLY) $(COPTS) --save-temps --noPrintLn -c --load=$(INSTKLEE) --doinstKlee --entry={LIBNAME}  {ASSUMPTIONS} {SOURCENAME}.c\n\nclean:\n\trm -rf *.o *.i *.cil.* klee-*\n'
 
-def generalize(source, libname, cex_args):
+def generalize(source, libname, cex_args, timer=None):
     assumption_list = []
     for arg, cex in cex_args.items():
         assumption_list.append(' == '.join([arg, repr(cex)]))
@@ -19,15 +19,19 @@ def generalize(source, libname, cex_args):
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" %source )
     subprocess.call(args)
     args = shlex.split("klee -single-path=true -entry-point=%s %s.cil.bc" % (libname, source))
+    if timer is not None:
+        timer.start()
     result = subprocess.run(args,stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if timer is not None:
+        timer.end()
     output = result.stderr
     new_pe = PEpair(output)
-    print(new_pe.get_parition())
-    print(new_pe.get_effect_new())
-    print(new_pe.get_effect_old())
+    #print(new_pe.get_parition())
+    #print(new_pe.get_effect_new())
+    #print(new_pe.get_effect_old())
     return new_pe
 
-def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name ="lib"):
+def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name ="lib", timer= None):
     makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
@@ -56,13 +60,17 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" % source)
     subprocess.call(args)
     args = shlex.split("klee -entry-point=%s %s.cil.bc" % (clientname, source))
+    if timer is not None:
+        timer.start()
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if timer is not None:
+        timer.end()
     output = result.stderr
     new_pe = PEClientPair(output, num_ret, is_inlined)
     #print(new_pe.get_client_specific_assertions())
     return new_pe
 
-def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[] , lib_name="lib"):
+def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[] , lib_name="lib", timer= None):
     makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
@@ -85,7 +93,11 @@ def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" % source)
     subprocess.call(args)
     args = shlex.split("klee -entry-point=%s %s.cil.bc" % (clientname, source))
+    if timer is not None:
+        timer.start()
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    if timer is not None:
+        timer.end()
     output = result.stderr
     new_pe = PEClientPrePair(output, arg_list)
     return new_pe

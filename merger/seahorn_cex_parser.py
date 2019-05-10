@@ -72,14 +72,19 @@ def twos_comp(val, bits):
 
 
 def launch_seahorn_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3temp.out', outfile='result.txt',
-                    library="lib"):
+                    library="lib", timer=None):
     if sourcefile:
         new_file = prepend_file(sourcefile, sea_horn_verify_header)
         temp_filename = sourcefile + "_cex.ll"
         args = shlex.split(
             "%s pf %s --cex=%s" % (seahorn_install, new_file, temp_filename))
+        if timer is not None:
+            timer.start()
         proc = subprocess.Popen(args, stdout=subprocess.PIPE)
         result = str(proc.stdout.readlines()[-1])
+        if timer is not None:
+            timer.end()
+
         if "unsat" in result:
             print("No Counter examples")
             return {}, []
