@@ -1,11 +1,13 @@
 import sys
 import argparse
 import shlex, subprocess
+import re
 
 from pysmt.smtlib.parser import SmtLibParser
 from pysmt.smtlib.script import SmtLibScript
 import pysmt.smtlib.commands as smtcmd
 
+bound_map = {}
 
 def get_cex(in_filename = "z3temp.out", out_filename = "", library="lib"):
   all_argmap = {}
@@ -60,19 +62,91 @@ def twos_comp(val, bits):
         val = val - (1 << bits)        # compute negative value
     return val
 
-def launch_CBMC_cex(sourcefile, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=100 , outfile='result.txt', library="lib"):
-    if sourcefile:
-        temp_filename = sourcefile + "_SMTout.smt2"
-        args = shlex.split(
-            "cbmc %s --no-unwinding-assertions --unwind %d --smt2 --outfile %s" % (sourcefile, unwinds, temp_filename))
-        proc = subprocess.Popen(args)
-        out, err = proc.communicate(timeout=180)
+def analyze_result(result, library_name, arg_signature):
+    all_argmap = {}
+    unwinding_assertion_result = True
+    failed_assertion = None
+    attention_flag = False
+    for line in result:
+        clean = line.decode("utf-8").rstrip()
+        if "unwinding assertion loop" in clean:
+            if clean.endswith("FAILURE"):
+                unwinding_assertion_result = False
+                continue
+        case_match = re.search('\[(.+\.assertion\..+)\].+FAILURE',clean)
+        if failed_assertion is None and case_match:
+            failed_assertion = case_match.group(1)
+            continue
 
-        args = shlex.split("z3 %s" % (temp_filename))
-        with open(z3output, "w+") as out:
-            proc = subprocess.Popen(args, stdout=out)
+        elif not attention_flag and \
+                failed_assertion is not None \
+                and "Trace for %s:" % failed_assertion == clean:
+            attention_flag = True
+            continue
+
+        elif attention_flag:
+            if "Trace for " in clean:
+                attention_flag = False
+                continue
+            else:
+                case_match = re.search('%s\((.*)\).+' % library_name, clean)
+                if case_match:
+                    args = case_match.group(1).split(',')
+                    print ("Counter example:")
+                    if len(args) == len(arg_signature):
+                        argmap = {}
+                        for i in range(len(args)):
+                            all_argmap[library_name] = argmap
+                            argmap[arg_signature[i]] = args[i].strip()
+                            print("%s : %s" %  (arg_signature[i], args[i].strip()))
+                        break
+
+    return (failed_assertion is None), unwinding_assertion_result, all_argmap
+
+
+
+
+
+
+
+
+def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=100 , outfile='result.txt', library="lib",
+                    incremental_bound_detection = True):
+    if sourcefile:
+        if incremental_bound_detection:
+            global bound_map
+            key = library+"("+','.join(lib_args)+")"
+            init_unwind = bound_map.get(key, 25)
+            while (init_unwind < unwinds):
+                temp_filename = sourcefile + "_SMTout.smt2"
+                args = shlex.split(
+                    "cbmc %s --unwinding-assertions --unwind %d --slice-formula --smt2 --stack-trace --verbosity 5" % (
+                    sourcefile, init_unwind))
+                proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                result = proc.stdout.readlines()
+                assertion_passed, unwinding_passed, all_argmap = analyze_result(result, library, lib_args)
+                bound_map[key] = init_unwind
+                if not assertion_passed:
+                    return all_argmap, lib_args
+                elif assertion_passed and unwinding_passed:
+                    return {}, lib_args
+                else:
+                    init_unwind = init_unwind * 2
+
+            print("no assertion violated within {bound} ".format(bound=init_unwind))
+            return {}, []
+        else:
+            temp_filename = sourcefile + "_SMTout.smt2"
+            args = shlex.split(
+                "cbmc %s --no-unwinding-assertions --unwind %d --smt2 --outfile %s" % (sourcefile, unwinds, temp_filename))
+            proc = subprocess.Popen(args)
             out, err = proc.communicate(timeout=180)
-        return get_cex(z3output, outfile, library)
+
+            args = shlex.split("z3 %s" % (temp_filename))
+            with open(z3output, "w+") as out:
+                proc = subprocess.Popen(args, stdout=out)
+                out, err = proc.communicate(timeout=180)
+            return get_cex(z3output, outfile, library)
 
     elif infile:
         args = shlex.split("z3 %s > %s" % (infile))

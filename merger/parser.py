@@ -69,6 +69,9 @@ def main():
     parser.add_argument('--unwind', type=int, dest='unwind', default=100, help="unwind  bound for bounded model checking")
     parser.add_argument('--engine', type=str, dest='engine', default="CBMC", help="select a verification backend engine "
                                                                                   "from CBMC, SEAHORN or KLEE")
+    parser.add_argument('--BMC-incremental', type=bool, dest='bmc_incremental', default=True,
+                        help="Allow BMC to incrementally detect program bound until reaching unwind limit.")
+
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
@@ -76,6 +79,7 @@ def main():
     post_assertion_set = set()
     pre_assumption_set = set()
     engine = args.engine
+    bmc_incremental = args.bmc_incremental
     if path.isfile(path_old) and path.isfile(path_new):
         base_lib_file, client_seq, merged_client, old_lib, m_file, client_name = merge_files (path_old, path_new, args.client, args.lib)
         iteration_num = 0
@@ -89,7 +93,8 @@ def main():
             if (engine == SEAHORN):
                 arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib)
             else:
-                arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
+                arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, unwinds=args.unwind,
+                                                               incremental_bound_detection=bmc_incremental)
             while (len(arg_map.keys())>0):
                 write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
                 pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib])
@@ -101,7 +106,9 @@ def main():
                                                                               parse_name_from_decl_list(client_params),
                                                                               library=client_name)
                 else:
-                    carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, library=client_name, unwinds=args.unwind)
+                    carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, parse_name_from_decl_list(client_params),
+                                                                     library=client_name, unwinds=args.unwind,
+                                                                     incremental_bound_detection=bmc_incremental)
                 if (len(carg_map.keys())>0):
                     print ("Find counter example with the current caller, now grow")
                     if immediate_caller.parent is None:
@@ -120,8 +127,10 @@ def main():
                                                                                           merged_lib),
                                                                                       library=args.lib)
                         else:
-                            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib,
-                                                                           unwinds=args.unwind)
+                            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c",get_args_from_lib_file(
+                                                                                          merged_lib), library=args.lib,
+                                                                           unwinds=args.unwind,
+                                                                           incremental_bound_detection=bmc_incremental)
 
                 else:
                     print ("Iteration %d UNSAT" % iteration_num)
@@ -139,7 +148,9 @@ def main():
                     if (engine == SEAHORN):
                         arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib)
                     else:
-                        arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", library=args.lib, unwinds=args.unwind)
+                        arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c",  get_args_from_lib_file(merged_lib),
+                                                                       library=args.lib, unwinds=args.unwind,
+                                                                       incremental_bound_detection=bmc_incremental)
 
             #We have proved CSE for a lib call-site, mark all verified callers and move on
             immediate_caller.verify_checked()
