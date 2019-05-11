@@ -117,8 +117,7 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
             global bound_map
             key = library+"("+','.join(lib_args)+")"
             init_unwind = bound_map.get(key, 25)
-            while (init_unwind < unwinds):
-                temp_filename = sourcefile + "_SMTout.smt2"
+            while (True):
                 args = shlex.split(
                     "cbmc %s --unwinding-assertions --unwind %d --slice-formula --smt2 --stack-trace --verbosity 5" % (
                     sourcefile, init_unwind))
@@ -136,6 +135,8 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                     return {}, lib_args
                 else:
                     init_unwind = init_unwind * 2
+                    if (init_unwind > unwinds):
+                        break
 
             print("no assertion violated within {bound} ".format(bound=init_unwind))
             return {}, []

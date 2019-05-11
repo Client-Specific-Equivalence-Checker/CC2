@@ -31,11 +31,18 @@ def main():
         test_harness, outfile = create_test_harness(path_old, path_new, args.client, args.lib)
         args = shlex.split("clang-6.0 -emit-llvm -c %s" % outfile)
         subprocess.call(args)
-        args = shlex.split("klee -entry-point=%s %s" % ("main", outfile.rstrip('c')+"bc"))
+        args = shlex.split("klee -exit-on-error-type=Abort -entry-point=%s %s" % ("CLEVER_main", outfile.rstrip('c')+"bc"))
         result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         output = result.stdout
-        err = result.stderr
-        print(output, err)
+        cex_lines = []
+        outlines = output.split('\n')
+        for line in outlines:
+            if line.startswith("CEX "):
+                cex_lines.append(line)
+        if len(cex_lines) > 0 :
+            print ('\n'.join(cex_lines))
+        else:
+            print ("CSE")
 
     return test_harness
 
@@ -102,8 +109,8 @@ def create_test_harness(path_old, path_new, client, lib):
 
     #ceate the main function
     main_func = copy.deepcopy(old_client_node)
-    main_func.decl.name = "main"
-    main_func.decl.type.type.declname ="main"
+    main_func.decl.name = "CLEVER_main"
+    main_func.decl.type.type.declname ="CLEVER_main"
     main_func.decl.type.args.params=[]
     main_func.body.block_items =[]
     calling_list = []
@@ -120,15 +127,17 @@ def create_test_harness(path_old, path_new, client, lib):
     ID_list= []
     for arg in calling_list:
         arg_name = arg.name
-        format_string += " {name} : %d,".format(name=arg_name)
+        format_string += "CEX {name} : %d,".format(name=arg_name)
         ID_list.append(c_ast.ID(name=arg_name))
-    format_string.rstrip(",")
+    format_string = format_string.rstrip(",")
 
 
 
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name= "klee_assume"), args=c_ast.BinaryOp(op="!=", left=old_client_invo, right=new_client_invo)))
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="printf"),
-                                                     args=c_ast.ExprList(exprs=([c_ast.Constant(type='string', value="\"CEX " + format_string +"\"")] + ID_list))))
+                                                     args=c_ast.ExprList(exprs=([c_ast.Constant(type='string', value="\"" + format_string +"\\n" +"\"")] + ID_list))))
+    main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="abort"),
+                                                     args=c_ast.ExprList(exprs=[])))
     new_File = c_ast.FileAST(ext=[new_lib_node, old_lib_node,new_client_node, old_client_node, main_func])
 
     generator = c_generator.CGenerator()
