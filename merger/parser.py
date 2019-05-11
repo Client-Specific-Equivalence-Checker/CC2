@@ -143,6 +143,7 @@ def main():
                     print ("Find counter example with the current caller, now grow")
                     if immediate_caller.parent is None:
                         print ("Grow out of context, CEX")
+                        print("Solver decision Time: {time}".format(time=timer.get_time()))
                         return
                     else:
                         immediate_caller.verify_checked()

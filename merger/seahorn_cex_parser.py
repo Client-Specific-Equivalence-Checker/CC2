@@ -57,6 +57,7 @@ def extract_cex(cexfileName, lib_args, lib_name):
             argmap = {}
             all_argmap[lib_name] = argmap
             argmap[lib_args[0]] ='0'
+            print("counterexamples: %s  = %d" % (lib_args[0], 0))
             all_args = lib_args
         else:
             print("Error")
