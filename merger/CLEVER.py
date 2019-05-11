@@ -2,7 +2,7 @@ import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast
 import shlex, subprocess
-from merger import parser
+from merger import parser as p
 import copy
 import re
 import sys
@@ -17,6 +17,8 @@ Klee_Header_String = "extern void klee_make_symbolic(void *addr , unsigned int n
 
 def main():
 
+    timer = p.Timer()
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--new', type=str, dest='new', default="new.c", help ="new source file" )
     parser.add_argument('--old', type=str, dest ='old', default="old.c", help="old source file")
@@ -28,14 +30,17 @@ def main():
     path_old = args.old
     path_new = args.new
     if path.isfile(path_old) and path.isfile(path_new):
+        timer.start()
         test_harness, outfile = create_test_harness(path_old, path_new, args.client, args.lib)
         args = shlex.split("clang-6.0 -emit-llvm -c %s" % outfile)
         subprocess.call(args)
-        args = shlex.split("klee -search=dfs -exit-on-error-type=Abort -entry-point=%s %s" % ("CLEVER_main", outfile.rstrip('c')+"bc"))
+        args = shlex.split("klee -exit-on-error-type=Abort -entry-point=%s %s" % ("CLEVER_main", outfile.rstrip('c')+"bc"))
         result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         output = result.stdout
         cex_lines = []
         outlines = output.split('\n')
+        timer.end()
+        print ("time : %f\n" % timer.get_time())
         for line in outlines:
             if line.startswith("CEX "):
                 cex_lines.append(line)
@@ -70,7 +75,7 @@ def create_test_harness(path_old, path_new, client, lib):
             cpp_path='gcc',
             cpp_args=['-E', r'-Iutils/fake_libc_include'])
 
-    old_lib_visitor = parser.FuncDefVisitor(lib)
+    old_lib_visitor = p.FuncDefVisitor(lib)
     old_lib_visitor.visit(old_ast)
     old_lib_node = old_lib_visitor.container
     assert not old_lib_node is None, "old lib does not exist"
@@ -78,7 +83,7 @@ def create_test_harness(path_old, path_new, client, lib):
         old_lib_node.decl.name += "_old"
         old_lib_node.decl.type.type.declname += "_old"
 
-    old_client_visitor = parser.FuncDefVisitor(client)
+    old_client_visitor = p.FuncDefVisitor(client)
     old_client_visitor.visit(old_ast)
     old_client_node = old_client_visitor.container
     assert not old_client_node is None, "old lib client not exist"
@@ -86,7 +91,7 @@ def create_test_harness(path_old, path_new, client, lib):
         old_client_node.decl.name += "_old"
         old_client_node.decl.type.type.declname += "_old"
 
-    new_lib_visitor = parser.FuncDefVisitor(lib)
+    new_lib_visitor = p.FuncDefVisitor(lib)
     new_lib_visitor.visit(new_ast)
     new_lib_node = new_lib_visitor.container
     assert not new_lib_node is None, "new lib does not exist"
@@ -94,7 +99,7 @@ def create_test_harness(path_old, path_new, client, lib):
         new_lib_node.decl.name += "_new"
         new_lib_node.decl.type.type.declname += "_new"
 
-    new_client_visitor = parser.FuncDefVisitor(client)
+    new_client_visitor = p.FuncDefVisitor(client)
     new_client_visitor.visit(new_ast)
     new_client_node = new_client_visitor.container
     assert not new_client_node is None, "new lib does not exist"

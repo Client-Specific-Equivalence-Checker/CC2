@@ -1,7 +1,7 @@
 import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast, c_parser
-from merger import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser
+from merger import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser
 import copy
 import re
 import sys
@@ -84,6 +84,7 @@ def main():
 
     timer = Timer()
     SEAHORN = "SEAHORN"
+    KLEE = "KLEE"
     parser = argparse.ArgumentParser()
     parser.add_argument('--new', type=str, dest='new', default="new.c", help ="new source file" )
     parser.add_argument('--old', type=str, dest ='old', default="old.c", help="old source file")
@@ -119,6 +120,9 @@ def main():
 
             if (engine == SEAHORN):
                 arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, timer=timer)
+            elif (engine == KLEE):
+                arg_map, arg_list = klee_cex_parser.launch_klee_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib,
+                                                timer=timer)
             else:
                 arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, unwinds=args.unwind,
                                                                incremental_bound_detection=bmc_incremental, timer=timer)
@@ -134,6 +138,11 @@ def main():
                     carg_map, carg_list = seahorn_cex_parser.launch_seahorn_cex(restricted_c_file,
                                                                               parse_name_from_decl_list(client_params),
                                                                               library=client_name, timer=timer)
+                elif (engine == KLEE):
+                    carg_map, carg_list = klee_cex_parser.launch_klee_cex(restricted_c_file,
+                                                                                parse_name_from_decl_list(
+                                                                                    client_params),
+                                                                                library=client_name, timer=timer)
                 else:
                     carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, parse_name_from_decl_list(client_params),
                                                                      library=client_name, unwinds=args.unwind,
@@ -155,6 +164,11 @@ def main():
 
                         if (engine == SEAHORN):
                             arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c",
+                                                                                      get_args_from_lib_file(
+                                                                                          merged_lib),
+                                                                                      library=args.lib, timer=timer)
+                        if (engine == KLEE):
+                            arg_map, arg_list = klee_cex_parser.launch_klee_cex("merged.c",
                                                                                       get_args_from_lib_file(
                                                                                           merged_lib),
                                                                                       library=args.lib, timer=timer)
@@ -181,6 +195,8 @@ def main():
 
                     if (engine == SEAHORN):
                         arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, timer=timer)
+                    elif (engine == KLEE):
+                        arg_map, arg_list = klee_cex_parser.launch_klee_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, timer=timer)
                     else:
                         arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c",  get_args_from_lib_file(merged_lib),
                                                                        library=args.lib, unwinds=args.unwind,
