@@ -31,7 +31,7 @@ def main():
         test_harness, outfile = create_test_harness(path_old, path_new, args.client, args.lib)
         args = shlex.split("clang-6.0 -emit-llvm -c %s" % outfile)
         subprocess.call(args)
-        args = shlex.split("klee -search=dfs -exit-on-error-type=Abort -write-smt2s -entry-point=%s %s" % ("CLEVER_main", outfile.rstrip('c')+"bc"))
+        args = shlex.split("klee -search=dfs -exit-on-error-type=Abort -entry-point=%s %s" % ("CLEVER_main", outfile.rstrip('c')+"bc"))
         result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         output = result.stdout
         cex_lines = []
@@ -128,14 +128,14 @@ def create_test_harness(path_old, path_new, client, lib):
     for arg in calling_list:
         arg_name = arg.name
         format_string += "CEX {name} : %d,".format(name=arg_name)
-        ID_list.append(c_ast.ID(name=arg_name))
+        ID_list.append(c_ast.FuncCall(name=c_ast.ID(name="klee_get_valued"), args=c_ast.ExprList(exprs=[c_ast.ID(name=arg_name)])))
     format_string = format_string.rstrip(",")
 
 
 
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name= "klee_assume"), args=c_ast.BinaryOp(op="!=", left=old_client_invo, right=new_client_invo)))
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="printf"),
-                                                     args=c_ast.ExprList(exprs=([c_ast.Constant(type='string', value="\"CEX !"+"\\n" +"\"")]))))
+                                                     args=c_ast.ExprList(exprs=([c_ast.Constant(type='string', value="\"" + format_string +"\\n" +"\"")] + ID_list))))
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="abort"),
                                                 args=c_ast.ExprList(exprs=[])))
     harness_File = old_ast
