@@ -18,6 +18,7 @@ renamed = set()
 declared = set()
 value_copied =set()
 Return_bindings = {}
+r_max_depth = 3000
 
 def str_to_boolean(input):
     return input is not None and  input.lower() in ["yes", "true", "y", "ok"]
@@ -81,6 +82,7 @@ def parse_name_from_decl_list(nodes):
 
 
 def main():
+    global  r_max_depth
 
     timer = Timer()
     SEAHORN = "SEAHORN"
@@ -144,10 +146,11 @@ def main():
                                                                               parse_name_from_decl_list(client_params),
                                                                               library=client_name, timer=timer)
                 elif (engine == KLEE):
+                    sys.setrecursionlimit(r_max_depth)
                     carg_map, carg_list = klee_cex_parser.launch_klee_cex(restricted_c_file,
                                                                                 parse_name_from_decl_list(
                                                                                     client_params),
-                                                                                library=client_name, timer=timer)
+                                                                                library=client_name, timer=timer, max_recusive_depth=r_max_depth)
                 else:
                     carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, parse_name_from_decl_list(client_params),
                                                                      library=client_name, unwinds=args.unwind,
@@ -287,6 +290,7 @@ def refine_library(m_file, assumptions, post_assertion, pre_assumptions):
 
 def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string=None, main_func = None, merged_outfile ="client_merged.c" , option="CBMC"):
     global  Return_bindings
+    global  r_max_depth
     klee_file = None
     pre_cond_file = None
     lib = lib_file.ext[1]
@@ -335,6 +339,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
 
         old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 99999;\n")
         new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 99999;\n")
+        r_max_depth = max(len(old_lib_string), len(new_lib_string), r_max_depth)
     else:
         recorded_var = set()
         new_else_branch = ""

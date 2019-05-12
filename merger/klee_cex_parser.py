@@ -29,7 +29,7 @@ def twos_comp(val, bits):
 
 
 def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3temp.out', outfile='result.txt',
-                    library="lib", timer=None):
+                    library="lib", timer=None, max_recusive_depth=256):
     if sourcefile:
         source_file_node = parse_file(sourcefile, use_cpp=True,
                                  cpp_path='gcc',
@@ -110,7 +110,7 @@ def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3
             with open(output_file_name, "w") as o:
                 o.write(output_string)
 
-            args = shlex.split("clang-6.0 -emit-llvm -c %s" % output_file_name)
+            args = shlex.split("clang-6.0 -emit-llvm -fbracket-depth=%d -c %s" % (max_recusive_depth, output_file_name))
             subprocess.call(args)
             args = shlex.split(
                 "klee -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (library, output_file_name.rstrip('c') + "bc"))
