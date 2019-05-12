@@ -18,7 +18,7 @@ def generalize(source, libname, cex_args, timer=None):
     subprocess.call("make")
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" %source )
     subprocess.call(args)
-    args = shlex.split("klee -single-path=true -entry-point=%s %s.cil.bc" % (libname, source))
+    args = shlex.split("klee -write-no-tests -single-path=true -entry-point=%s %s.cil.bc" % (libname, source))
     if timer is not None:
         timer.start()
     result = subprocess.run(args,stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -59,7 +59,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
 
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" % source)
     subprocess.call(args)
-    args = shlex.split("klee -entry-point=%s %s.cil.bc" % (clientname, source))
+    args = shlex.split("klee -write-no-tests -entry-point=%s %s.cil.bc" % (clientname, source))
     if timer is not None:
         timer.start()
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -92,7 +92,7 @@ def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_
 
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" % source)
     subprocess.call(args)
-    args = shlex.split("klee -entry-point=%s %s.cil.bc" % (clientname, source))
+    args = shlex.split("klee -write-no-tests -entry-point=%s %s.cil.bc" % (clientname, source))
     if timer is not None:
         timer.start()
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)

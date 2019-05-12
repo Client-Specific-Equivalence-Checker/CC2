@@ -113,7 +113,7 @@ def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3
             args = shlex.split("clang-6.0 -emit-llvm -c %s" % output_file_name)
             subprocess.call(args)
             args = shlex.split(
-                "klee -exit-on-error-type=Abort -entry-point=%s %s" % (library, output_file_name.rstrip('c') + "bc"))
+                "klee -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (library, output_file_name.rstrip('c') + "bc"))
             timer.start()
             result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             timer.end()

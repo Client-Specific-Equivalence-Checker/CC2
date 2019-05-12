@@ -61,6 +61,12 @@ def extract_cex(cexfileName, lib_args, lib_name):
             all_args = lib_args
         else:
             print("Error")
+    else:
+        print ("input independent CEX")
+        argmap = {}
+        all_argmap[lib_name] = argmap
+        for key in lib_args:
+            argmap[key] = '0'
 
     return all_argmap, all_args
 
