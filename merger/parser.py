@@ -93,6 +93,9 @@ def main():
     parser.add_argument('--unwind', type=int, dest='unwind', default=100, help="unwind  bound for bounded model checking")
     parser.add_argument('--engine', type=str, dest='engine', default="CBMC", help="select a verification backend engine "
                                                                                   "from CBMC, SEAHORN or KLEE")
+    parser.add_argument('--EQ-ORACLE', type=str, dest='oracle', default="",
+                        help="Use external equivalence checker "
+                             "from REVE, KLEE or ModDiff")
     parser.add_argument('--BMC-incremental', type=str, dest='bmc_incremental', default="True",
                         help="Allow BMC to incrementally detect program bound until reaching unwind limit.")
 
@@ -104,6 +107,8 @@ def main():
     pre_assumption_set = set()
     engine = args.engine
     bmc_incremental = str_to_boolean(args.bmc_incremental)
+    use_eq_checker = len(args.oracle) == 0
+    client_context_encapsulator.is_MLCCheker = use_eq_checker
 
 
     if path.isfile(path_old) and path.isfile(path_new):

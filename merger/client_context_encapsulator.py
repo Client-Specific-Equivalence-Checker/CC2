@@ -1,6 +1,7 @@
 from pycparser import parse_file, c_generator, c_ast, c_parser
 from merger import parser
 import copy
+is_MLCCheker = True
 
 def analyze_client(client_node, lib):
     CFV = ClientFUnctionHierarchyVisitor (lib, client_node)
@@ -11,7 +12,33 @@ def analyze_client(client_node, lib):
 '''
 Given a fragment of C functions, complete the function by adding approipate input variables
 '''
-def complete_functions(func_object, client_template, lib):
+def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
+    if not is_MLCCheker:
+        func = func_object.raw_node
+        if not isinstance(func, c_ast.FuncDef):
+            DUV = DUVisitor()
+            DUV.visit(func)
+            new_func = copy.deepcopy(client_template)
+
+            new_func.decl.name = client_template.decl.name
+            new_func.decl.type.type.declname = client_template.decl.type.type.declname
+            new_func.decl.type.args = c_ast.ParamList([])
+            new_func.body.block_items = []
+            new_func.body.block_items.append(copy.deepcopy(func))
+            for missing_def in DUV.missing_define:
+                new_func.decl.type.args.params.append(
+                    c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
+                               bitsize=None,
+                               type=c_ast.TypeDecl(declname=missing_def, quals=[],
+                                                   type=c_ast.IdentifierType(['int']))))
+
+                if missing_def in DUV.value_changed:
+                    new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
+        else:
+            new_func = func
+
+        func_object.raw_node = new_func
+
     func = func_object.node
     if not isinstance(func, c_ast.FuncDef):
         DUV = DUVisitor()
@@ -240,7 +267,9 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
 
 
     def create_ClientContextNode(self, node, lib_node, parent, raw_lib_node, known_child=None):
+        global  is_MLCCheker
         hook_installed = False
+        node_copy = copy.deepcopy(node)
         if (known_child is not None and known_child.raw_lib_node is not None):
             known_child_content = known_child.raw_lib_node
             child_parent = self.parent_child.get(known_child_content, None)
@@ -249,7 +278,7 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                 child_parent.block_items[index] = c_ast.Compound(block_items=[c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=None), known_child_content])
                 hook_installed = True
 
-        result = complete_functions(ClientContextDag(copy.deepcopy(node), copy.deepcopy(lib_node), parent, raw_lib_node), self.client, self.lib_name)
+        result = complete_functions(ClientContextDag(copy.deepcopy(node),node_copy, copy.deepcopy(lib_node), parent, raw_lib_node), self.client, self.lib_name, is_MLCCheker=is_MLCCheker)
         if (hook_installed):
             CUV = CleanUpVisitor()
             CUV.visit(result.node)
@@ -280,8 +309,9 @@ class CleanUpVisitor(c_ast.NodeVisitor):
 
 
 class ClientContextDag(object):
-    def __init__(self, node, lib_node,  parent, raw_lib_node):
+    def __init__(self, node, raw_node, lib_node,  parent, raw_lib_node):
         self.node = node
+        self.raw_node = raw_node
         self.lib_node = lib_node
         self.raw_lib_node = raw_lib_node
         self.parent = parent

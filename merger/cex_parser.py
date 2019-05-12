@@ -134,9 +134,12 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                 elif assertion_passed and unwinding_passed:
                     return {}, lib_args
                 else:
-                    init_unwind = init_unwind * 2
+                    if (init_unwind == unwinds):
+                        break;
+                    else:
+                        init_unwind = init_unwind * 2
                     if (init_unwind > unwinds):
-                        break
+                        init_unwind = unwinds
 
             print("no assertion violated within {bound} ".format(bound=init_unwind))
             return {}, []
