@@ -28,8 +28,7 @@ def twos_comp(val, bits):
     return val
 
 
-def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3temp.out', outfile='result.txt',
-                    library="lib", timer=None, max_recusive_depth=256):
+def launch_klee_cex(sourcefile, lib_args, library="lib", timer=None, max_recusive_depth=256):
     if sourcefile:
         source_file_node = parse_file(sourcefile, use_cpp=True,
                                  cpp_path='gcc',
@@ -100,6 +99,9 @@ def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3
             lib_file.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="printf"),
                                                              args=c_ast.ExprList(exprs=([c_ast.Constant(type='string',
                                                                                                         value="\"CEX " + format_string + "\\n" + "\"")] + ID_list))))
+            lib_file.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="perror"),
+                                                            args=c_ast.ExprList(exprs=([c_ast.Constant(type='string',
+                                                                                                       value="\"A lovely CEX\"")]))))
             lib_file.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="abort"),
                                                              args=c_ast.ExprList(exprs=[])))
 
@@ -113,11 +115,13 @@ def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3
             args = shlex.split("clang-6.0 -emit-llvm -fbracket-depth=%d -c %s" % (max_recusive_depth, output_file_name))
             subprocess.call(args)
             args = shlex.split(
-                "klee -optimize -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (library, output_file_name.rstrip('c') + "bc"))
+                "klee  -optimize  -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (library, output_file_name.rstrip('c') + "bc"))
             timer.start()
             result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             timer.end()
             output = result.stdout
+            pe_info = result.stderr
+            pe = PEVisitedPair(pe_info, lib_args)
             cex_lines = None
             outlines = output.split('\n')
             for line in outlines:
@@ -125,7 +129,7 @@ def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3
                     cex_lines = line
 
             if cex_lines is None:
-                return {}, []
+                return {}, [], pe
             else:
                 print (cex_lines)
                 cex_lines = cex_lines.strip("CEX ")
@@ -139,12 +143,34 @@ def launch_klee_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3
                     if key in lib_args:
                         argmap[key] = value
 
-                return all_argmap, lib_args
+                return all_argmap, lib_args, pe
 
             raise Exception
 
 
 
+class PEVisitedPair(object):
+    def __init__(self, pe_result, arg_lists):
+        self.visited_path_constraints = set()
+        pe_set = pe_result.split("Partition:")
+        for pe in pe_set:
+            if len(pe) > 0:
+                pe_list = pe.split('\n')
+                partitions = pe_list[0].split('&')
+                pre_parition = []
+                for part in partitions:
+                    if  part != ' )  ':
+                        pre_parition.append(part)
+
+                self.visited_path_constraints.add("( " + ' & '.join(pre_parition) + " )")
+                if pe_list[-1].startswith("A lovely CEX") or pe_list[-2].startswith("A lovely CEX"):
+                    break;
+
+    def get_visited_partition(self):
+        return self.visited_path_constraints
+
+    def get_visit_partition_str(self):
+        return ' | '.join(self.get_visited_partition())
 
 
 
