@@ -21,7 +21,12 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
             new_func = copy.deepcopy(client_template)
 
             new_func.decl.name = client_template.decl.name
-            new_func.decl.type.type.declname = client_template.decl.type.type.declname
+            renamed_type =new_func.decl.type
+            template_type =client_template.decl.type
+            while not isinstance(template_type, c_ast.TypeDecl):
+                renamed_type = renamed_type.type
+                template_type = template_type.type
+            renamed_type.declname = template_type.declname
             new_func.decl.type.args = c_ast.ParamList([])
             new_func.body.block_items = []
             new_func.body.block_items.append(copy.deepcopy(func))
@@ -46,7 +51,12 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
         new_func = copy.deepcopy(client_template)
 
         new_func.decl.name = client_template.decl.name
-        new_func.decl.type.type.declname =  client_template.decl.type.type.declname
+        renamed_type = new_func.decl.type
+        template_type = client_template.decl.type
+        while not isinstance(template_type, c_ast.TypeDecl):
+            renamed_type = renamed_type.type
+            template_type = template_type.type
+        renamed_type.declname = template_type.declname
         new_func.decl.type.args = c_ast.ParamList([])
         new_func.body.block_items = []
         new_func.body.block_items.append(copy.deepcopy(func))
@@ -73,7 +83,12 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
             new_func = copy.deepcopy(client_template)
 
             new_func.decl.name = client_template.decl.name
-            new_func.decl.type.type.declname = client_template.decl.type.type.declname
+            renamed_type = new_func.decl.type
+            template_type = client_template.decl.type
+            while not isinstance(template_type, c_ast.TypeDecl):
+                renamed_type = renamed_type.type
+                template_type = template_type.type
+            renamed_type.declname = template_type.declname
             new_func.decl.type.args = None
             new_func.decl.type.args = c_ast.ParamList([])
             new_func.body.block_items = []

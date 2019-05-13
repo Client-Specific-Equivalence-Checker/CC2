@@ -34,7 +34,7 @@ def main():
         test_harness, outfile = create_test_harness(path_old, path_new, args.client, args.lib)
         args = shlex.split("clang-6.0 -emit-llvm -c %s" % outfile)
         subprocess.call(args)
-        args = shlex.split("klee -exit-on-error-type=Abort -entry-point=%s %s" % ("CLEVER_main", outfile.rstrip('c')+"bc"))
+        args = shlex.split("klee -optimize -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % ("CLEVER_main", outfile.rstrip('c')+"bc"))
         result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         output = result.stdout
         cex_lines = []
@@ -102,7 +102,7 @@ def create_test_harness(path_old, path_new, client, lib):
     new_client_visitor = p.FuncDefVisitor(client)
     new_client_visitor.visit(new_ast)
     new_client_node = new_client_visitor.container
-    assert not new_client_node is None, "new lib does not exist"
+    assert not new_client_node is None, "new client does not exist"
     if isinstance(new_client_node, c_ast.FuncDef):
         new_client_node.decl.name += "_new"
         new_client_node.decl.type.type.declname += "_new"

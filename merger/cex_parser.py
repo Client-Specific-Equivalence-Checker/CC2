@@ -8,6 +8,17 @@ from pysmt.smtlib.script import SmtLibScript
 import pysmt.smtlib.commands as smtcmd
 
 bound_map = {}
+default_init = None
+
+def get_default_init(max):
+    global  default_init
+    if default_init is None:
+        while max >= 30:
+            max = max /2
+        default_init = int(max)
+
+    return default_init
+
 
 def get_cex(in_filename = "z3temp.out", out_filename = "", library="lib"):
   all_argmap = {}
@@ -115,8 +126,9 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
     if sourcefile:
         if incremental_bound_detection:
             global bound_map
+            default_init = get_default_init(unwinds)
             key = library+"("+','.join(lib_args)+")"
-            init_unwind = bound_map.get(key, 25)
+            init_unwind = bound_map.get(key, default_init)
             while (True):
                 args = shlex.split(
                     "cbmc %s --unwinding-assertions --unwind %d --slice-formula --smt2 --stack-trace --verbosity 5" % (

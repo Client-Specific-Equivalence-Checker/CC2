@@ -1,7 +1,7 @@
 import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast, c_parser
-from merger import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser
+from merger import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser, eq_oracle_interface
 import copy
 import re
 import sys
@@ -114,9 +114,13 @@ def main():
 
 
     if path.isfile(path_old) and path.isfile(path_new):
-        base_lib_file, client_seq, merged_client, old_lib, m_file, client_name = merge_files (path_old, path_new, args.client, args.lib)
+        base_lib_file, client_seq, merged_client, old_lib, new_lib, m_file, client_name = merge_files (path_old, path_new, args.client, args.lib)
         iteration_num = 0
         MSCs = []
+
+        if not use_eq_checker:
+            return eq_oracle_interface.check_equivlence(client_seq, old_lib, new_lib, args.lib)
+
 
         for i in range(len(client_seq)):
             immediate_caller = client_seq[i].parent
@@ -175,7 +179,7 @@ def main():
                                                                                       get_args_from_lib_file(
                                                                                           merged_lib),
                                                                                       library=args.lib, timer=timer)
-                        if (engine == KLEE):
+                        elif (engine == KLEE):
                             arg_map, arg_list = klee_cex_parser.launch_klee_cex("merged.c",
                                                                                       get_args_from_lib_file(
                                                                                           merged_lib),
@@ -818,6 +822,7 @@ class ReturnHuntVisitor(c_ast.NodeVisitor):
         elif isinstance(parent, c_ast.While):
             parent.stmt = assignment
         self.return_nums += 1
+
 
 
     def visit(self, node, parent, index=0):
@@ -1471,14 +1476,18 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     assert str(new_lib_node.decl.type) == str(old_lib_node.decl.type) , "lib functions signature mismatch"
 
     #convert returns into assignment
-    ret_v = ReturnHuntVisitor("int", "ret_{}_old", single_return=True)
+    r_types = get_type(old_lib_node)
+    r_type = r_types[0]
+    ret_v = ReturnHuntVisitor(r_type, "ret_{}_old", single_return=True)
     ret_v.visit(old_lib_node, None)
     old_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_0_old", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="ret_0_old", quals=[], type=c_ast.IdentifierType(['int']))))
-    ret_v = ReturnHuntVisitor("int", "ret_{}_new", single_return=True)
+                                                       type=c_ast.TypeDecl(declname="ret_0_old", quals=[], type=c_ast.IdentifierType(r_types))))
+    r_types = get_type(new_lib_node)
+    r_type = r_types[0]
+    ret_v = ReturnHuntVisitor(r_type, "ret_{}_new", single_return=True)
     ret_v.visit(new_lib_node, None)
     new_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_0_new", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="ret_0_new", quals=[], type=c_ast.IdentifierType(['int']))))
+                                                       type=c_ast.TypeDecl(declname="ret_0_new", quals=[], type=c_ast.IdentifierType(r_types))))
 
     merged_ast = merge(old_lib_node.body, new_lib_node.body)
 
@@ -1539,7 +1548,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     # new we want to compute the merged client's
     merged_client = version_merge_client(client_node_copy, lib)
     #print(generator.visit(merged_client))
-    return m_file, changed_clients, merged_client, old_lib_node, m_file, client_name
+    return m_file, changed_clients, merged_client, old_lib_copy, new_lib_copy, m_file, client_name
 
 def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
     lib_old = copy.deepcopy(og_lib_old)
@@ -1557,7 +1566,7 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
     renamer.visit(old_lib)
     merged_lib, return_num = merge_libs(old_lib, new_lib)
     merged_lib.decl.name = "lib"
-    merged_lib.decl.type.type.declname = "lib"
+    function_rename(merged_lib, "lib")
     for i in range(return_num):
         merged_lib.body.block_items.append(
             c_ast.FuncCall(name=c_ast.ID(name='assert'), args=c_ast.BinaryOp(op='==', left=c_ast.ID(name="ret_{}_old".format(i)),
@@ -1567,7 +1576,7 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
 
     main_function = copy.deepcopy(merged_lib)
     main_function.decl.name = "main"
-    main_function.decl.type.type.declname = "main"
+    function_rename(main_function, "main")
     main_function.decl.type.args = None
     main_function.body.block_items = []
     arg_list = []
@@ -1609,6 +1618,21 @@ class lib_invoc_renamer(c_ast.NodeVisitor):
                 if node.name.name == self.lib:
                     node.name.name += ('_'+self.version)
 
+def function_rename(function_node, name):
+    if isinstance(function_node, c_ast.FuncDef):
+        renamed_type = function_node.decl.type
+        while not isinstance(renamed_type, c_ast.TypeDecl):
+            renamed_type = renamed_type.type
+        renamed_type.declname = name
+
+def get_type(function_node):
+    if isinstance(function_node, c_ast.FuncDef):
+        fun_type = function_node.decl.type
+        while not isinstance(fun_type, c_ast.IdentifierType):
+            fun_type = fun_type.type
+        return copy.deepcopy(fun_type.names)
+
+    raise  Exception
 
 
 if __name__ == "__main__":
