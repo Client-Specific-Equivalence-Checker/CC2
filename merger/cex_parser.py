@@ -123,6 +123,7 @@ def analyze_result(result, library_name, arg_signature):
 
 def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=100 , outfile='result.txt', library="lib",
                     incremental_bound_detection = True, timer=None):
+    complete = True
     if sourcefile:
         if incremental_bound_detection:
             global bound_map
@@ -142,9 +143,9 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                 assertion_passed, unwinding_passed, all_argmap = analyze_result(result, library, lib_args)
                 bound_map[key] = init_unwind
                 if not assertion_passed:
-                    return all_argmap, lib_args
+                    return all_argmap, lib_args, True
                 elif assertion_passed and unwinding_passed:
-                    return {}, lib_args
+                    return {}, lib_args, True
                 else:
                     if (init_unwind == unwinds):
                         break;
@@ -154,7 +155,7 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                         init_unwind = unwinds
 
             print("no assertion violated within {bound} ".format(bound=init_unwind))
-            return {}, []
+            return {}, [], False
         else:
             if timer is not None:
                 timer.start()
@@ -170,16 +171,19 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                 out, err = proc.communicate(timeout=180)
             if timer is not None:
                 timer.end()
-            return get_cex(z3output, outfile, library)
+            arg_map, arg_list = get_cex(z3output, outfile, library)
+            return arg_map, arg_list, complete
 
     elif infile:
         args = shlex.split("z3 %s > %s" % (infile))
         with open(z3output, "w+") as out:
             proc = subprocess.Popen(args, stdout=out)
             out, err = proc.communicate(timeout=180)
-        return get_cex(z3output, outfile, library)
+        arg_map, arg_list = get_cex(z3output, outfile, library)
+        return arg_map, arg_list, complete
     else:
-        return get_cex(library=library)
+        arg_map, arg_list = get_cex(library=library)
+        return arg_map, arg_list, complete
 
 if __name__ == "__main__":
   argv = sys.argv[1:]

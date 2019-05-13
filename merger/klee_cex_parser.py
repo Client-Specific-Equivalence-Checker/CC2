@@ -28,7 +28,7 @@ def twos_comp(val, bits):
     return val
 
 
-def launch_klee_cex(sourcefile, lib_args, library="lib", timer=None, max_recusive_depth=256):
+def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=None, max_recusive_depth=256):
     if sourcefile:
         source_file_node = parse_file(sourcefile, use_cpp=True,
                                  cpp_path='gcc',
@@ -62,11 +62,11 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", timer=None, max_recusiv
 
                 elif isinstance(child, c_ast.FuncCall):
                     if isinstance(child.name, c_ast.ID) and child.name.name == "assert":
-                        if (isinstance(child.args, c_ast.BinaryOp) and child.args.op == '==') :
+                        if (isinstance(child.args, c_ast.BinaryOp)) :
                             assertion_exp.append(child.args)
                             to_be_removed.append(child)
                         elif (isinstance(child.args, c_ast.ExprList) and len(child.args.exprs) == 1 and
-                             isinstance(child.args.exprs[0], c_ast.BinaryOp) and child.args.exprs[0].op == "=="):
+                             isinstance(child.args.exprs[0], c_ast.BinaryOp)):
                             assertion_exp.append(child.args.exprs[0])
                             to_be_removed.append(child)
 
@@ -115,12 +115,14 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", timer=None, max_recusiv
             args = shlex.split("clang-6.0 -emit-llvm -fbracket-depth=%d -c %s" % (max_recusive_depth, output_file_name))
             subprocess.call(args)
             args = shlex.split(
-                "klee  -optimize  -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (library, output_file_name.rstrip('c') + "bc"))
+                "klee  -optimize  -max-depth=%d -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (unwind, library, output_file_name.rstrip('c') + "bc"))
             timer.start()
             result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             timer.end()
             output = result.stdout
             pe_info = result.stderr
+            complete = not (pe_info.endswith("Early termination \n"))
+            pe_info = pe_info.rstrip("Early termination \n")
             pe = PEVisitedPair(pe_info, lib_args)
             cex_lines = None
             outlines = output.split('\n')
@@ -129,7 +131,9 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", timer=None, max_recusiv
                     cex_lines = line
 
             if cex_lines is None:
-                return {}, [], pe
+                if not complete:
+                    print("No assertion violation with depth {d}".format(d=unwind))
+                return {}, [], pe, complete
             else:
                 print (cex_lines)
                 cex_lines = cex_lines.strip("CEX ")
@@ -143,7 +147,7 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", timer=None, max_recusiv
                     if key in lib_args:
                         argmap[key] = value
 
-                return all_argmap, lib_args, pe
+                return all_argmap, lib_args, pe, True
 
             raise Exception
 

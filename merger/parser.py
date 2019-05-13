@@ -19,6 +19,8 @@ declared = set()
 value_copied =set()
 Return_bindings = {}
 r_max_depth = 3000
+SEAHORN = "SEAHORN"
+KLEE = "KLEE"
 
 def str_to_boolean(input):
     return input is not None and  input.lower() in ["yes", "true", "y", "ok"]
@@ -80,13 +82,47 @@ def parse_name_from_decl_list(nodes):
             signature_list.append(arg.name)
     return signature_list
 
+def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set, unwind, bmc_incremental,r_max_depth, hybrid_sovling=False,
+             merged_lib = None, post_assertion_set = set(), pre_assumption_set = set()):
+    global SEAHORN
+    global  KLEE
+
+    while (True):
+        if (engine == SEAHORN):
+            complete = True
+            arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex(file_name, library_arg,
+                                                                      library=library_name, timer=timer)
+        elif (engine == KLEE):
+            arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
+                                                                     library=library_name, unwind=unwind,
+                                                                     timer=timer, max_recusive_depth=r_max_depth)
+            visited_assumption = vpe.get_visit_partition_str()
+            should_refine = len(visited_assumption) > 0
+            if should_refine:
+                assumption_set.add(visited_assumption)
+        else:
+            arg_map, arg_list, complete = cex_parser.launch_CBMC_cex(file_name, library_arg, library=library_name,
+                                                           unwinds=unwind,
+                                                           incremental_bound_detection=bmc_incremental, timer=timer)
+        if (not hybrid_sovling or complete):
+            return arg_map, arg_list
+        else:
+            if (engine==KLEE and merged_lib is not None and should_refine):
+                refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
+            engine = SEAHORN
+            continue
+
+
+
+
 
 def main():
     global  r_max_depth
+    global SEAHORN
+    global KLEE
 
     timer = Timer()
-    SEAHORN = "SEAHORN"
-    KLEE = "KLEE"
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--new', type=str, dest='new', default="new.c", help ="new source file" )
     parser.add_argument('--old', type=str, dest ='old', default="old.c", help="old source file")
@@ -101,6 +137,9 @@ def main():
     parser.add_argument('--BMC-incremental', type=str, dest='bmc_incremental', default="True",
                         help="Allow BMC to incrementally detect program bound until reaching unwind limit.")
 
+    parser.add_argument('--hybrid-solving', type=str, dest='hybrid', default="False",
+                        help="Allow dynamic verification technique adjustment")
+
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
@@ -109,6 +148,7 @@ def main():
     pre_assumption_set = set()
     engine = args.engine
     bmc_incremental = str_to_boolean(args.bmc_incremental)
+    hybrid_sovling = str_to_boolean(args.hybrid)
     use_eq_checker = len(args.oracle) == 0
     client_context_encapsulator.is_MLCCheker = use_eq_checker
 
@@ -128,18 +168,10 @@ def main():
                 continue
             merged_lib = rewrite_lib_file(base_lib_file)
 
+            arg_map, arg_list =  check_eq( "merged.c", engine, get_args_from_lib_file(merged_lib), args.lib, timer,
+                                           assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
+                                           merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
 
-            if (engine == SEAHORN):
-                arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, timer=timer)
-            elif (engine == KLEE):
-                arg_map, arg_list, vpe = klee_cex_parser.launch_klee_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib,
-                                                timer=timer)
-                visited_assumption = vpe.get_visit_partition_str()
-                if len(visited_assumption)> 0:
-                    assumption_set.add(visited_assumption)
-            else:
-                arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, unwinds=args.unwind,
-                                                               incremental_bound_detection=bmc_incremental, timer=timer)
 
             while (len(arg_map.keys())>0):
                 write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
@@ -148,20 +180,9 @@ def main():
                 restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
                     inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node)
 
-                if (engine == SEAHORN):
-                    carg_map, carg_list = seahorn_cex_parser.launch_seahorn_cex(restricted_c_file,
-                                                                              parse_name_from_decl_list(client_params),
-                                                                              library=client_name, timer=timer)
-                elif (engine == KLEE):
-                    sys.setrecursionlimit(r_max_depth)
-                    carg_map, carg_list, vpe = klee_cex_parser.launch_klee_cex(restricted_c_file,
-                                                                                parse_name_from_decl_list(
-                                                                                    client_params),
-                                                                                library=client_name, timer=timer, max_recusive_depth=r_max_depth)
-                else:
-                    carg_map, carg_list = cex_parser.launch_CBMC_cex(restricted_c_file, parse_name_from_decl_list(client_params),
-                                                                     library=client_name, unwinds=args.unwind,
-                                                                     incremental_bound_detection=bmc_incremental, timer=timer)
+                carg_map, carg_list = check_eq(restricted_c_file, engine, parse_name_from_decl_list(client_params),
+                                             client_name, timer, set(), args.unwind, bmc_incremental,r_max_depth, hybrid_sovling=False)
+
 
                 if (len(carg_map.keys())>0):
                     print ("Find counter example with the current caller, now grow")
@@ -176,25 +197,11 @@ def main():
                         assumption_set=set()
                         post_assertion_set=set()
                         pre_assumption_set = set()
+                        arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+                                                     timer,
+                                                     assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
+                                                     merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
 
-                        if (engine == SEAHORN):
-                            arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c",
-                                                                                      get_args_from_lib_file(
-                                                                                          merged_lib),
-                                                                                      library=args.lib, timer=timer)
-                        elif (engine == KLEE):
-                            arg_map, arg_list, vpe = klee_cex_parser.launch_klee_cex("merged.c",
-                                                                                      get_args_from_lib_file(
-                                                                                          merged_lib),
-                                                                                      library=args.lib, timer=timer)
-                            visited_assumption = vpe.get_visit_partition_str()
-                            if len(visited_assumption) > 0:
-                                assumption_set.add(visited_assumption)
-                        else:
-                            arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c",get_args_from_lib_file(
-                                                                                          merged_lib), library=args.lib,
-                                                                           unwinds=args.unwind,
-                                                                           incremental_bound_detection=bmc_incremental, timer=timer)
 
 
                 else:
@@ -211,17 +218,9 @@ def main():
                         pre_assumption_set.update(ppe.get_preconditions())
                     refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
 
-                    if (engine == SEAHORN):
-                        arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, timer=timer)
-                    elif (engine == KLEE):
-                        arg_map, arg_list, vpe = klee_cex_parser.launch_klee_cex("merged.c", get_args_from_lib_file(merged_lib), library=args.lib, timer=timer)
-                        visited_assumption = vpe.get_visit_partition_str()
-                        if len(visited_assumption) > 0:
-                            assumption_set.add(visited_assumption)
-                    else:
-                        arg_map, arg_list = cex_parser.launch_CBMC_cex("merged.c",  get_args_from_lib_file(merged_lib),
-                                                                       library=args.lib, unwinds=args.unwind,
-                                                                       incremental_bound_detection=bmc_incremental, timer=timer)
+                    arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+                                                 timer, assumption_set, args.unwind, bmc_incremental, r_max_depth,  hybrid_sovling=hybrid_sovling,
+                                                 merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
 
 
             #We have proved CSE for a lib call-site, mark all verified callers and move on
