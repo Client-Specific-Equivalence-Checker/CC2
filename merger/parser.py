@@ -197,10 +197,13 @@ def main():
                         assumption_set=set()
                         post_assertion_set=set()
                         pre_assumption_set = set()
-                        arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
-                                                     timer,
-                                                     assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
-                                                     merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
+                        #check previous CEX immediately in the new librray and client
+                        arg_map, arg_list = carg_map, carg_list
+                        arg_map[args.lib] = arg_map[args.client]
+                        #arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+                        #                             timer,
+                        #                             assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
+                        #                             merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
 
 
 
