@@ -198,12 +198,14 @@ def main():
                         post_assertion_set=set()
                         pre_assumption_set = set()
                         #check previous CEX immediately in the new librray and client
-                        arg_map, arg_list = carg_map, carg_list
-                        arg_map[args.lib] = arg_map[args.client]
-                        #arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
-                        #                             timer,
-                        #                             assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
-                        #                             merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
+                        if immediate_caller.arg_lib is None:
+                            arg_map, arg_list = carg_map, carg_list
+                            arg_map[args.lib] = arg_map[args.client]
+                        else:
+                            arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+                                                         timer,
+                                                         assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
+                                                         merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
 
 
 
@@ -363,6 +365,8 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             ret_name = ret_binding.get(key, key)
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
+            elif isinstance(ret_name, c_ast.Constant):
+                ret_name = str(ret_name.value)
             assumption_exp_new +=  "\n" + ret_name + " = " + replace_bit_vector(value.replace("true", "1").replace((key + " ="), '')) + ";"
             new_else_branch+= "\n" + ret_name + " =  99999;"
             if ret_name not in recorded_var:
@@ -375,6 +379,8 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             ret_name = ret_binding.get(key, key)
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
+            elif isinstance(ret_name, c_ast.Constant):
+                ret_name = str(ret_name.value)
             assumption_exp_old += ret_name + " = " + replace_bit_vector(value.replace("false", "0").replace("true", "1").replace((key + " ="),
                                                                                                        '') )+ ";"
             old_else_branch += "\n" + ret_name + " =  99999;"

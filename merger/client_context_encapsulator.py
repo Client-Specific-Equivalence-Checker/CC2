@@ -74,6 +74,20 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
 
     func_object.node = parser.version_merge_client(new_func, lib)
 
+    if func_object.arg_lib is not None and isinstance(func, c_ast.FuncDef):
+        temp_client_func = func_object.node
+        CUV = CleanUpVisitor()
+        CUV.visit(temp_client_func)
+        DUV = DUVisitor()
+        DUV.visit(temp_client_func)
+        for missing_def in DUV.missing_define:
+            temp_client_func.body.block_items.insert(0,
+                c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
+                           bitsize=None,
+                           type=c_ast.TypeDecl(declname=missing_def, quals=[],
+                                               type=c_ast.IdentifierType(['int']))))
+        func_object.node = temp_client_func
+
 
     if func != func_object.lib_node:
         func = func_object.lib_node
@@ -104,8 +118,50 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
 
             func_object.lib_node = new_func
+        elif func_object.arg_lib is not None:
+            func_object.lib_node = func
         else:
             func_object.lib_node = new_func
+
+    if func_object.arg_lib is not None:
+        func = func_object.arg_lib
+        if not isinstance(func, c_ast.FuncDef):
+            DUV = DUVisitor()
+            DUV.visit(func)
+            new_func = copy.deepcopy(client_template)
+
+            new_func.decl.name = client_template.decl.name
+            renamed_type = new_func.decl.type
+            template_type = client_template.decl.type
+            while not isinstance(template_type, c_ast.TypeDecl):
+                renamed_type = renamed_type.type
+                template_type = template_type.type
+            renamed_type.declname = template_type.declname
+            new_func.decl.type.args = None
+            new_func.decl.type.args = c_ast.ParamList([])
+            new_func.body.block_items = []
+            if isinstance(func, c_ast.Compound):
+                new_func.body.block_items = copy.deepcopy(func).block_items
+            else:
+                new_func.body.block_items.append(copy.deepcopy(func))
+            for missing_def in DUV.missing_define:
+                new_func.decl.type.args.params.append(
+                    c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
+                               bitsize=None,
+                               type=c_ast.TypeDecl(declname=missing_def, quals=[],
+                                                   type=c_ast.IdentifierType(['int']))))
+
+                if missing_def in DUV.value_changed:
+                    new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
+
+            for defintion in DUV.define:
+                if defintion not in missing_def:
+                    new_func.body.block_items.append(c_ast.Return(c_ast.ID(defintion)))
+
+            func_object.arg_lib = new_func
+        else:
+            func_object.arg_lib = func
+
 
     return func_object
 
@@ -269,10 +325,9 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                                     else:
                                         c_object = self.create_ClientContextNode(child_node, c_node, None, c_node, l_object)
                                 else:
-                                    c_object = self.create_ClientContextNode(c_node, c_node, None, c_node, l_object)
+                                    c_object = self.create_ClientContextNode(c_node, copy.deepcopy(c_node), None, c_node, l_object)
                                 self.node_dict[c_node]=c_object
-                            c_object.children.append(l_object)
-                            l_object.parent = c_object
+                            self.add_parent_child(c_object, l_object)
                             l_object = c_object
 
                         child_node = c_node
@@ -280,11 +335,22 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
 
                     self.root = c_object
 
+    def add_parent_child(self, parent, child):
+        parent.children.append(child)
+        child.parent = parent
+        if parent.arg_lib is not None:
+            child.lib_node = parent.arg_lib
+
 
     def create_ClientContextNode(self, node, lib_node, parent, raw_lib_node, known_child=None):
         global  is_MLCCheker
         hook_installed = False
+        should_remove = False
         node_copy = copy.deepcopy(node)
+        start, end, arg_lib, arg_client  = self.merge_libs_calls(node)
+        if arg_client is not None and arg_lib is not None:
+            node = arg_client
+            hook_installed = True
         if (known_child is not None and known_child.raw_lib_node is not None):
             known_child_content = known_child.raw_lib_node
             child_parent = self.parent_child.get(known_child_content, None)
@@ -292,12 +358,73 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                 index = child_parent.block_items.index(known_child_content)
                 child_parent.block_items[index] = c_ast.Compound(block_items=[c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=None), known_child_content])
                 hook_installed = True
+                should_remove = True
 
-        result = complete_functions(ClientContextDag(copy.deepcopy(node),node_copy, copy.deepcopy(lib_node), parent, raw_lib_node), self.client, self.lib_name, is_MLCCheker=is_MLCCheker)
+        result = complete_functions(ClientContextDag(copy.deepcopy(node),node_copy, copy.deepcopy(lib_node), parent, raw_lib_node, arg_lib), self.client, self.lib_name, is_MLCCheker=is_MLCCheker)
         if (hook_installed):
             CUV = CleanUpVisitor()
             CUV.visit(result.node)
+            if should_remove:
+                child_parent.block_items.pop(index)
         return result
+
+    def merge_libs_calls(self, node):
+        start = -1
+        end = -1
+        argumented_client = None
+        argumented_lib = None
+        LibCV = LibCallHunter(self.lib_name)
+        if isinstance(node, c_ast.If):
+            if isinstance(node.iftrue, c_ast.Compound):
+                checking_blocks = node.iftrue.block_items
+        elif isinstance(node, c_ast.FuncDef):
+            checking_blocks = node.body.block_items
+        else:
+            checking_blocks = []
+
+        for index in range(len(checking_blocks)):
+            LibCV.use_lib = False
+            block = checking_blocks[index]
+            LibCV.visit(block)
+            if LibCV.use_lib:
+                if (start == -1):
+                    start = index
+                if (end < index):
+                    end =index
+
+
+        if (end > start):
+            argumented_lib = c_ast.Compound(block_items=checking_blocks[start:end+1])
+            argumented_client = copy.deepcopy(node)
+            if isinstance(argumented_client, c_ast.If):
+                if isinstance(argumented_client.iftrue, c_ast.Compound):
+                    blocks = argumented_client.iftrue.block_items
+                    argumented_client.iftrue.block_items = blocks[:start] +[c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=None)]  + blocks[end+1:]
+            elif isinstance(argumented_client, c_ast.FuncDef):
+                blocks = argumented_client.body.block_items
+                argumented_client.body.block_items = blocks[:start] + [c_ast.Compound(block_items=
+                    [c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=None)] + checking_blocks[start:end+1])] + blocks[end+1:]
+
+        return start, end, argumented_lib, argumented_client
+
+
+
+class LibCallHunter(c_ast.NodeVisitor):
+
+    def __init__(self, lib_name):
+        self.use_lib = False
+        self.lib_name = lib_name
+
+
+    def visit_FuncCall(self, node):
+        if isinstance(node, c_ast.FuncCall):
+            if node.name.name == self.lib_name:
+                self.use_lib = True
+                return
+            else:
+                self.visit(node.args)
+
+
 
 class CleanUpVisitor(c_ast.NodeVisitor):
 
@@ -324,7 +451,7 @@ class CleanUpVisitor(c_ast.NodeVisitor):
 
 
 class ClientContextDag(object):
-    def __init__(self, node, raw_node, lib_node,  parent, raw_lib_node):
+    def __init__(self, node, raw_node, lib_node,  parent, raw_lib_node, arg_lib = None):
         self.node = node
         self.raw_node = raw_node
         self.lib_node = lib_node
@@ -333,6 +460,7 @@ class ClientContextDag(object):
         self.children = []
         self.checked = False
         self.processed = False
+        self.arg_lib = arg_lib
 
     def verify_checked(self):
         self.checked = True
