@@ -154,89 +154,19 @@ def main():
 
 
     if path.isfile(path_old) and path.isfile(path_new):
-        base_lib_file, client_seq, merged_client, old_lib, new_lib, m_file, client_name = merge_files (path_old, path_new, args.client, args.lib)
+        base_lib_file, client_seq, _, _, _, _, client_name = merge_files (path_old, path_new, args.client, args.lib)
         iteration_num = 0
         MSCs = []
 
-        if not use_eq_checker:
-            return eq_oracle_interface.check_equivlence(client_seq, old_lib, new_lib, args.lib)
+        #if not use_eq_checker:
+        #    return eq_oracle_interface.check_equivlence(client_seq, old_lib, new_lib, args.lib)
 
 
         for i in range(len(client_seq)):
             immediate_callee = client_seq[i]
-            immediate_caller = immediate_callee.parent
-            if (immediate_caller.checked):
-                continue
-            if immediate_caller.arg_lib is not None:
-                merged_lib = rewrite_lib_file(immediate_callee.lib_node)
-            else:
-                merged_lib = rewrite_lib_file(base_lib_file)
-
-            arg_map, arg_list =  check_eq( "merged.c", engine, get_args_from_lib_file(merged_lib), args.lib, timer,
-                                           assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
-                                           merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
-
-
-            while (len(arg_map.keys())>0):
-                write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
-                pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib], timer=timer)
-                assumption_set.add(pe.get_parition())
-                restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
-                    inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node)
-
-                carg_map, carg_list = check_eq(restricted_c_file, engine, parse_name_from_decl_list(client_params),
-                                             client_name, timer, set(), args.unwind, bmc_incremental,r_max_depth, hybrid_sovling=False)
-
-
-                if (len(carg_map.keys())>0):
-                    print ("Find counter example with the current caller, now grow")
-                    if immediate_caller.parent is None:
-                        print ("Grow out of context, CEX")
-                        print("Solver decision Time: {time}".format(time=timer.get_time()))
-                        return
-                    else:
-                        immediate_caller.verify_checked()
-                        merged_lib = rewrite_lib_file(immediate_caller.lib_node)
-                        immediate_caller = immediate_caller.parent
-                        assumption_set=set()
-                        post_assertion_set=set()
-                        pre_assumption_set = set()
-                        #check previous CEX immediately in the new librray and client
-                        if immediate_caller.arg_lib is None:
-                            arg_map, arg_list = carg_map, carg_list
-                            arg_map[args.lib] = arg_map[args.client]
-                        else:
-                            arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
-                                                         timer,
-                                                         assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
-                                                         merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
-
-
-
-                else:
-                    print ("Iteration %d UNSAT" % iteration_num)
-                    if g_klee_file is not None:
-                        write_out_generalizible_client(g_klee_file, "client_merged_g.c", False, lib_name=args.lib)
-                        cpe = generalizer.generalize_client("client_merged_g", args.client, inlined, num_ret, lib_name=args.lib, timer=timer)
-                        if (len(post_assertion_set) == 0):
-                            post_assertion_set.update(cpe.get_base_assumption())
-                        post_assertion_set.update(cpe.get_post_assertion_list())
-                    if pre_cond_file is not None and len(pre_assumption_set) == 0:
-                        write_out_generalizible_client(pre_cond_file, "client_merged_pre_cond_g.c", True, lib_name=args.lib)
-                        ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret, param_list, lib_name=args.lib, timer=timer)
-                        pre_assumption_set.update(ppe.get_preconditions())
-                    refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
-
-                    arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
-                                                 timer, assumption_set, args.unwind, bmc_incremental, r_max_depth,  hybrid_sovling=hybrid_sovling,
-                                                 merged_lib = merged_lib, post_assertion_set = post_assertion_set, pre_assumption_set = pre_assumption_set)
-
-
-            #We have proved CSE for a lib call-site, mark all verified callers and move on
-            immediate_caller.verify_checked()
-            #add the current caller to MSC
-            MSCs.append(immediate_caller)
-
+            eq = CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs)
+            if not eq:
+                exit(1)
         print("All lib call-sites have been checked, CSE")
         if len(MSCs) == 0:
             print ("MSC is the library")
@@ -251,6 +181,95 @@ def main():
     else:
         print("invalid input files")
         exit(1)
+
+
+def CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs):
+    assumption_set = set()
+    post_assertion_set = set()
+    pre_assumption_set = set()
+    immediate_caller = immediate_callee.parent
+    engine = args.engine
+    iteration_num = 0
+    bmc_incremental = str_to_boolean(args.bmc_incremental)
+    hybrid_sovling = str_to_boolean(args.hybrid)
+    if (immediate_caller.checked):
+        True
+    if immediate_caller.arg_lib is not None:
+        merged_lib = rewrite_lib_file(immediate_callee.lib_node)
+    else:
+        merged_lib = rewrite_lib_file(base_lib_file)
+
+    arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib, timer,
+                                 assumption_set, args.unwind, bmc_incremental, r_max_depth,
+                                 hybrid_sovling=hybrid_sovling,
+                                 merged_lib=merged_lib, post_assertion_set=post_assertion_set,
+                                 pre_assumption_set=pre_assumption_set)
+
+    while (len(arg_map.keys()) > 0):
+        write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
+        pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib], timer=timer)
+        assumption_set.add(pe.get_parition())
+        restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
+        inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node)
+
+        carg_map, carg_list = check_eq(restricted_c_file, engine, parse_name_from_decl_list(client_params),
+                                       client_name, timer, set(), args.unwind, bmc_incremental, r_max_depth,
+                                       hybrid_sovling=False)
+
+        if (len(carg_map.keys()) > 0):
+            print("Find counter example with the current caller, now grow")
+            if immediate_caller.parent is None:
+                print("Grow out of context, CEX")
+                print("Solver decision Time: {time}".format(time=timer.get_time()))
+                return  False
+            else:
+                immediate_caller.verify_checked()
+                merged_lib = rewrite_lib_file(immediate_caller.lib_node)
+                immediate_caller = immediate_caller.parent
+                assumption_set = set()
+                post_assertion_set = set()
+                pre_assumption_set = set()
+                # check previous CEX immediately in the new librray and client
+                if immediate_caller.arg_lib is None:
+                    arg_map, arg_list = carg_map, carg_list
+                    arg_map[args.lib] = arg_map[args.client]
+                else:
+                    arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+                                                 timer,
+                                                 assumption_set, args.unwind, bmc_incremental, r_max_depth,
+                                                 hybrid_sovling=hybrid_sovling,
+                                                 merged_lib=merged_lib, post_assertion_set=post_assertion_set,
+                                                 pre_assumption_set=pre_assumption_set)
+
+
+
+        else:
+            print("Iteration %d UNSAT" % iteration_num)
+            if g_klee_file is not None:
+                write_out_generalizible_client(g_klee_file, "client_merged_g.c", False, lib_name=args.lib)
+                cpe = generalizer.generalize_client("client_merged_g", args.client, inlined, num_ret, lib_name=args.lib,
+                                                    timer=timer)
+                if (len(post_assertion_set) == 0):
+                    post_assertion_set.update(cpe.get_base_assumption())
+                post_assertion_set.update(cpe.get_post_assertion_list())
+            if pre_cond_file is not None and len(pre_assumption_set) == 0:
+                write_out_generalizible_client(pre_cond_file, "client_merged_pre_cond_g.c", True, lib_name=args.lib)
+                ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret,
+                                                        param_list, lib_name=args.lib, timer=timer)
+                pre_assumption_set.update(ppe.get_preconditions())
+            refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
+
+            arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+                                         timer, assumption_set, args.unwind, bmc_incremental, r_max_depth,
+                                         hybrid_sovling=hybrid_sovling,
+                                         merged_lib=merged_lib, post_assertion_set=post_assertion_set,
+                                         pre_assumption_set=pre_assumption_set)
+
+    # We have proved CSE for a lib call-site, mark all verified callers and move on
+    immediate_caller.verify_checked()
+    # add the current caller to MSC
+    MSCs.append(immediate_caller)
+    return True
 
 def rewrite_lib_file(new_lib, outfile = "merged.c"):
     generator = c_generator.CGenerator()
