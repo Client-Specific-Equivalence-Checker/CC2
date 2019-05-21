@@ -347,11 +347,11 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
         hook_installed = False
         should_remove = False
         node_copy = copy.deepcopy(node)
-        start, end, arg_lib, arg_client  = self.merge_libs_calls(node)
+        start, end, arg_lib, arg_client  = self.merge_libs_calls(copy.deepcopy(node))
         if arg_client is not None and arg_lib is not None:
             node = arg_client
             hook_installed = True
-        if (known_child is not None and known_child.raw_lib_node is not None):
+        elif (known_child is not None and known_child.raw_lib_node is not None):
             known_child_content = known_child.raw_lib_node
             child_parent = self.parent_child.get(known_child_content, None)
             if child_parent is not None and isinstance(child_parent, c_ast.Compound):

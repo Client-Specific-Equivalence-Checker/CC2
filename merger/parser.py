@@ -163,10 +163,14 @@ def main():
 
 
         for i in range(len(client_seq)):
-            immediate_caller = client_seq[i].parent
+            immediate_callee = client_seq[i]
+            immediate_caller = immediate_callee.parent
             if (immediate_caller.checked):
                 continue
-            merged_lib = rewrite_lib_file(base_lib_file)
+            if immediate_caller.arg_lib is not None:
+                merged_lib = rewrite_lib_file(immediate_callee.lib_node)
+            else:
+                merged_lib = rewrite_lib_file(base_lib_file)
 
             arg_map, arg_list =  check_eq( "merged.c", engine, get_args_from_lib_file(merged_lib), args.lib, timer,
                                            assumption_set, args.unwind, bmc_incremental, r_max_depth, hybrid_sovling=hybrid_sovling,
@@ -1550,15 +1554,15 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     client_index = 0;
     for i in range ( len(changed_clients)):
         node_object = changed_clients[i]
-        while (node_object.parent is not None and not node_object.parent.processed):
-            node_object = node_object.parent
+        while (node_object is not None and not node_object.processed):
             node_object.processed = True
             #print("client " + str(client_index + 1))
             #print(generator.visit(node_object.node))
-            if (node_object.node != node_object.lib_node):
+            if (node_object is not None and node_object.node != node_object.lib_node):
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy)
-                #print(generator.visit(node_object.lib_node))
+                print(generator.visit(node_object.lib_node))
             #print ()
+            node_object = node_object.parent
             client_index+=1
 
 
@@ -1575,7 +1579,7 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
     lib_new.decl.name += '_new'
     lib_new.decl.type.type.declname += "_new"
 
-    new_lib = lib_node
+    new_lib = copy.deepcopy(lib_node)
     old_lib = copy.deepcopy(lib_node)
     renamer = lib_invoc_renamer(lib, "new")
     renamer.visit(new_lib)
