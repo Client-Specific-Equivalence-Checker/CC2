@@ -7,6 +7,8 @@ import re
 import sys
 import time
 sys.setrecursionlimit(3000)
+from multiprocessing.dummy import Pool as ThreadPool
+from multiprocessing import cpu_count
 
 
 
@@ -138,12 +140,14 @@ def main():
 
     parser.add_argument('--hybrid-solving', type=str, dest='hybrid', default="False",
                         help="Allow dynamic verification technique adjustment")
+    parser.add_argument('--concurrent', type=str, dest='concurrent', default="False", help='enable Concurrent MLC checking, default=False')
 
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
     use_eq_checker = len(args.oracle) == 0
     client_context_encapsulator.is_MLCCheker = use_eq_checker
+    concurrent_MLC = str_to_boolean(args.concurrent)
 
 
     if path.isfile(path_old) and path.isfile(path_new):
@@ -151,16 +155,32 @@ def main():
         MSCs = []
         total_solving_time = 0.0
         #if not use_eq_checker:
-        #    return eq_oracle_interface.check_equivlence(client_seq, old_lib, new_lib, args.lib)
+        #    return eq_oracle_interface.check_equivlence
+        #concurrent MLC checking
+        if concurrent_MLC:
+            #use half of the CPUs
+            pool = ThreadPool(int(cpu_count()/2))
+            innput_array =[]
+            for i in range(len(client_seq)):
+                immediate_callee = client_seq[i]
+                innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i)])
 
-
-        for i in range(len(client_seq)):
-            immediate_callee = client_seq[i]
-            eq, time = CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index=str(i))
-            total_solving_time += time
-            if not eq:
-                print("Solver decision Time: {time}".format(time=total_solving_time))
-                exit(1)
+            results = pool.starmap(CheckMLCs, innput_array)
+            for i in range(len(client_seq)):
+                eq, time = results[i]
+                total_solving_time += time
+                if not eq:
+                    print("Solver decision Time: {time}".format(time=total_solving_time))
+                    exit(1)
+        #seq MLC checking
+        else:
+            for i in range(len(client_seq)):
+                immediate_callee = client_seq[i]
+                eq, time = CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index=str(i))
+                total_solving_time += time
+                if not eq:
+                    print("Solver decision Time: {time}".format(time=total_solving_time))
+                    exit(1)
         print("All lib call-sites have been checked, CSE")
         if len(MSCs) == 0:
             print ("MSC is the library")
@@ -198,6 +218,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     hybrid_sovling = str_to_boolean(args.hybrid)
     if (immediate_caller.checked):
         True, timer.get_time()
+    immediate_caller.verify_checked()
     if immediate_caller.arg_lib is not None:
         merged_lib = rewrite_lib_file(immediate_callee.lib_node ,outfile=library_merged_file_name)
     else:
@@ -226,9 +247,9 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                 print("Grow out of context, CEX")
                 return  False, timer.get_time()
             else:
-                immediate_caller.verify_checked()
                 merged_lib = rewrite_lib_file(immediate_caller.lib_node, outfile=library_merged_file_name)
                 immediate_caller = immediate_caller.parent
+                immediate_caller.verify_checked()
                 assumption_set = set()
                 post_assertion_set = set()
                 pre_assumption_set = set()
