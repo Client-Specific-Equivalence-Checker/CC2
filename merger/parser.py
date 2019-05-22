@@ -121,7 +121,6 @@ def main():
     global SEAHORN
     global KLEE
 
-    timer = Timer()
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--new', type=str, dest='new', default="new.c", help ="new source file" )
@@ -143,29 +142,24 @@ def main():
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
-    assumption_set = set()
-    post_assertion_set = set()
-    pre_assumption_set = set()
-    engine = args.engine
-    bmc_incremental = str_to_boolean(args.bmc_incremental)
-    hybrid_sovling = str_to_boolean(args.hybrid)
     use_eq_checker = len(args.oracle) == 0
     client_context_encapsulator.is_MLCCheker = use_eq_checker
 
 
     if path.isfile(path_old) and path.isfile(path_new):
         base_lib_file, client_seq, _, _, _, _, client_name = merge_files (path_old, path_new, args.client, args.lib)
-        iteration_num = 0
         MSCs = []
-
+        total_solving_time = 0.0
         #if not use_eq_checker:
         #    return eq_oracle_interface.check_equivlence(client_seq, old_lib, new_lib, args.lib)
 
 
         for i in range(len(client_seq)):
             immediate_callee = client_seq[i]
-            eq = CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs)
+            eq, time = CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index=str(i))
+            total_solving_time += time
             if not eq:
+                print("Solver decision Time: {time}".format(time=total_solving_time))
                 exit(1)
         print("All lib call-sites have been checked, CSE")
         if len(MSCs) == 0:
@@ -173,7 +167,7 @@ def main():
         else:
             generator = c_generator.CGenerator()
             print ("MSC is: ")
-            print ("Solver decision Time: {time}".format(time=timer.get_time()))
+            print ("Solver decision Time: {time}".format(time=total_solving_time))
             print (generator.visit(MSCs[-1].node))
         return MSCs
 
@@ -183,7 +177,17 @@ def main():
         exit(1)
 
 
-def CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs):
+def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0"):
+    library_merged_file_name = "merged_{d}.c".format(d=prefix_index)
+    library_merged_generalized_file_name = "merged_g_{d}".format(d=prefix_index)
+    library_merged_generalized_file_name_extension = library_merged_generalized_file_name+".c"
+    client_merged_file_name = "client_merged_{d}.c".format(d=prefix_index)
+    client_merged_generalized_file = "client_merged_g_{d}".format(d=prefix_index)
+    client_merged_generalized_file_extension = client_merged_generalized_file + ".c"
+    client_merged_precond_file = "client_merged_pre_cond_g_{d}".format(d=prefix_index)
+    client_merged_precond_file_extension = client_merged_precond_file + ".c"
+
+    timer = Timer()
     assumption_set = set()
     post_assertion_set = set()
     pre_assumption_set = set()
@@ -193,24 +197,24 @@ def CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs):
     bmc_incremental = str_to_boolean(args.bmc_incremental)
     hybrid_sovling = str_to_boolean(args.hybrid)
     if (immediate_caller.checked):
-        True
+        True, timer.get_time()
     if immediate_caller.arg_lib is not None:
-        merged_lib = rewrite_lib_file(immediate_callee.lib_node)
+        merged_lib = rewrite_lib_file(immediate_callee.lib_node ,outfile=library_merged_file_name)
     else:
-        merged_lib = rewrite_lib_file(base_lib_file)
+        merged_lib = rewrite_lib_file(base_lib_file, outfile= library_merged_file_name)
 
-    arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib, timer,
+    arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib), args.lib, timer,
                                  assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                  hybrid_sovling=hybrid_sovling,
                                  merged_lib=merged_lib, post_assertion_set=post_assertion_set,
                                  pre_assumption_set=pre_assumption_set)
 
     while (len(arg_map.keys()) > 0):
-        write_out_generalizible_lib(merged_lib, "merged_g.c", lib_name=args.lib)
-        pe = generalizer.generalize("merged_g", args.lib, arg_map[args.lib], timer=timer)
+        write_out_generalizible_lib(merged_lib, library_merged_generalized_file_name_extension, lib_name=args.lib)
+        pe = generalizer.generalize(library_merged_generalized_file_name, args.lib, arg_map[args.lib], timer=timer)
         assumption_set.add(pe.get_parition())
         restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
-        inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node)
+        inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node, merged_outfile =client_merged_file_name)
 
         carg_map, carg_list = check_eq(restricted_c_file, engine, parse_name_from_decl_list(client_params),
                                        client_name, timer, set(), args.unwind, bmc_incremental, r_max_depth,
@@ -220,11 +224,10 @@ def CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs):
             print("Find counter example with the current caller, now grow")
             if immediate_caller.parent is None:
                 print("Grow out of context, CEX")
-                print("Solver decision Time: {time}".format(time=timer.get_time()))
-                return  False
+                return  False, timer.get_time()
             else:
                 immediate_caller.verify_checked()
-                merged_lib = rewrite_lib_file(immediate_caller.lib_node)
+                merged_lib = rewrite_lib_file(immediate_caller.lib_node, outfile=library_merged_file_name)
                 immediate_caller = immediate_caller.parent
                 assumption_set = set()
                 post_assertion_set = set()
@@ -234,7 +237,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs):
                     arg_map, arg_list = carg_map, carg_list
                     arg_map[args.lib] = arg_map[args.client]
                 else:
-                    arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+                    arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib), args.lib,
                                                  timer,
                                                  assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                                  hybrid_sovling=hybrid_sovling,
@@ -246,20 +249,20 @@ def CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs):
         else:
             print("Iteration %d UNSAT" % iteration_num)
             if g_klee_file is not None:
-                write_out_generalizible_client(g_klee_file, "client_merged_g.c", False, lib_name=args.lib)
-                cpe = generalizer.generalize_client("client_merged_g", args.client, inlined, num_ret, lib_name=args.lib,
+                write_out_generalizible_client(g_klee_file, client_merged_generalized_file_extension, False, lib_name=args.lib)
+                cpe = generalizer.generalize_client(client_merged_generalized_file, args.client, inlined, num_ret, lib_name=args.lib,
                                                     timer=timer)
                 if (len(post_assertion_set) == 0):
                     post_assertion_set.update(cpe.get_base_assumption())
                 post_assertion_set.update(cpe.get_post_assertion_list())
             if pre_cond_file is not None and len(pre_assumption_set) == 0:
-                write_out_generalizible_client(pre_cond_file, "client_merged_pre_cond_g.c", True, lib_name=args.lib)
-                ppe = generalizer.generalize_pre_client("client_merged_pre_cond_g", args.client, inlined, num_ret,
+                write_out_generalizible_client(pre_cond_file, client_merged_precond_file_extension, True, lib_name=args.lib)
+                ppe = generalizer.generalize_pre_client(client_merged_precond_file, args.client, inlined, num_ret,
                                                         param_list, lib_name=args.lib, timer=timer)
                 pre_assumption_set.update(ppe.get_preconditions())
-            refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
+            refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set, outfile=library_merged_file_name)
 
-            arg_map, arg_list = check_eq("merged.c", engine, get_args_from_lib_file(merged_lib), args.lib,
+            arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib), args.lib,
                                          timer, assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                          hybrid_sovling=hybrid_sovling,
                                          merged_lib=merged_lib, post_assertion_set=post_assertion_set,
@@ -269,7 +272,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, timer, client_name, MSCs):
     immediate_caller.verify_checked()
     # add the current caller to MSC
     MSCs.append(immediate_caller)
-    return True
+    return True, timer.get_time()
 
 def rewrite_lib_file(new_lib, outfile = "merged.c"):
     generator = c_generator.CGenerator()
@@ -280,7 +283,7 @@ def rewrite_lib_file(new_lib, outfile = "merged.c"):
 
 
 
-def refine_library(m_file, assumptions, post_assertion, pre_assumptions):
+def refine_library(m_file, assumptions, post_assertion, pre_assumptions, outfile="merged.c"):
     m_file_copy = copy.deepcopy(m_file)
     parser = c_parser.CParser()
     for assume in assumptions:
@@ -323,7 +326,7 @@ def refine_library(m_file, assumptions, post_assertion, pre_assumptions):
     generator = c_generator.CGenerator()
     result_string = generator.visit(m_file_copy)
     #print (result_string)
-    with open("merged.c", 'w') as merged_out:
+    with open(outfile, 'w') as merged_out:
         merged_out.write(result_string)
     return 0;
 
@@ -335,7 +338,6 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
     pre_cond_file = None
     lib = lib_file.ext[1]
     is_inlined = False
-    num_ret = 0;
     #create base line library version
     if (old_lib_string is None or new_lib_string is None):
         lib_copy = copy.deepcopy(lib)
@@ -1579,7 +1581,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
             #print(generator.visit(node_object.node))
             if (node_object is not None and node_object.node != node_object.lib_node):
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy)
-                print(generator.visit(node_object.lib_node))
+                #print(generator.visit(node_object.lib_node))
             #print ()
             node_object = node_object.parent
             client_index+=1
