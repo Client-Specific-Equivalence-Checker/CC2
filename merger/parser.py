@@ -9,6 +9,7 @@ import time
 sys.setrecursionlimit(3000)
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing import cpu_count
+from threading import Lock
 
 
 
@@ -157,13 +158,14 @@ def main():
         #if not use_eq_checker:
         #    return eq_oracle_interface.check_equivlence
         #concurrent MLC checking
-        if concurrent_MLC:
+        if concurrent_MLC and len(client_seq) >1:
             #use half of the CPUs
             pool = ThreadPool(int(cpu_count()/2))
             innput_array =[]
+            lock = Lock()
             for i in range(len(client_seq)):
                 immediate_callee = client_seq[i]
-                innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i)])
+                innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i), lock])
 
             results = pool.starmap(CheckMLCs, innput_array)
             for i in range(len(client_seq)):
@@ -196,8 +198,15 @@ def main():
         print("invalid input files")
         exit(1)
 
+def lock_actions(lock):
+    if lock is not None :
+        lock.acquire()
 
-def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0"):
+def unclock_actions(lock):
+    if lock is not None :
+        lock.release()
+
+def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None):
     library_merged_file_name = "merged_{d}.c".format(d=prefix_index)
     library_merged_generalized_file_name = "merged_g_{d}".format(d=prefix_index)
     library_merged_generalized_file_name_extension = library_merged_generalized_file_name+".c"
@@ -216,9 +225,12 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     iteration_num = 0
     bmc_incremental = str_to_boolean(args.bmc_incremental)
     hybrid_sovling = str_to_boolean(args.hybrid)
+    lock_actions(lock)
     if (immediate_caller.checked):
-        True, timer.get_time()
+        unclock_actions(lock)
+        return True, timer.get_time()
     immediate_caller.verify_checked()
+    unclock_actions(lock)
     if immediate_caller.arg_lib is not None:
         merged_lib = rewrite_lib_file(immediate_callee.lib_node ,outfile=library_merged_file_name)
     else:
@@ -249,7 +261,12 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
             else:
                 merged_lib = rewrite_lib_file(immediate_caller.lib_node, outfile=library_merged_file_name)
                 immediate_caller = immediate_caller.parent
+                lock_actions(lock)
+                if (immediate_caller.checked):
+                    unclock_actions(lock)
+                    return True, timer.get_time()
                 immediate_caller.verify_checked()
+                unclock_actions(lock)
                 assumption_set = set()
                 post_assertion_set = set()
                 pre_assumption_set = set()
@@ -290,7 +307,9 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                                          pre_assumption_set=pre_assumption_set)
 
     # We have proved CSE for a lib call-site, mark all verified callers and move on
+    lock_actions(lock)
     immediate_caller.verify_checked()
+    unclock_actions(lock)
     # add the current caller to MSC
     MSCs.append(immediate_caller)
     return True, timer.get_time()
