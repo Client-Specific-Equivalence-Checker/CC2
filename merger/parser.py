@@ -152,6 +152,8 @@ def main():
 
 
     if path.isfile(path_old) and path.isfile(path_new):
+        total_timer = Timer()
+        total_timer.start()
         base_lib_file, client_seq, _, _, _, _, client_name = merge_files (path_old, path_new, args.client, args.lib)
         MSCs = []
         total_solving_time = 0.0
@@ -182,6 +184,8 @@ def main():
                 total_solving_time += time
                 if not eq:
                     print("Solver decision Time: {time}".format(time=total_solving_time))
+                    total_timer.end()
+                    print("Total Checking Time: {time}".format(time=total_timer.get_time()))
                     exit(1)
         print("All lib call-sites have been checked, CSE")
         if len(MSCs) == 0:
@@ -191,6 +195,8 @@ def main():
             print ("MSC is: ")
             print ("Solver decision Time: {time}".format(time=total_solving_time))
             print (generator.visit(MSCs[-1].node))
+        total_timer.end()
+        print("Total Checking Time: {time}".format(time=total_timer.get_time()))
         return MSCs
 
 
