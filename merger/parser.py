@@ -418,52 +418,58 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
     num_ret = len(pe.get_effect_old().keys())
     if (ret_binding is None):
         #klee_assumption_string_new= assumption_exp_new
-        for key, value in pe.get_effect_new().items():
-            assumption_exp_new += "return " + replace_bit_vector(value.replace("true","1").replace( (key+" ="), '')) + ";\n"
+        for new_key, new_value in pe.get_effect_new().items():
+            assumption_exp_new += "return " + replace_bit_vector(new_value.replace("true","1").replace( (new_key+" ="), '')) + ";\n"
+            old_key = new_key.rstrip("_new") +"_old"
+            old_value = pe.get_effect_old().get(old_key, None)
+            if (old_value is not None):
+                assumption_exp_old += "return " + replace_bit_vector(old_value.replace("false", "0").replace("true", "1").replace((old_key + " ="), '')) + ";\n"
 
 
-        #klee_assumption_string_old = assumption_exp_old
-        for key, value in pe.get_effect_old().items():
-            assumption_exp_old += "return " + replace_bit_vector(value.replace("false", "0").replace("true", "1").replace((key+" ="),''))+ ";"
+
 
         old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\nreturn 99999;\n")
         new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\nreturn 99999;\n")
         r_max_depth = max(len(old_lib_string), len(new_lib_string), r_max_depth)
     else:
+        assumption_exp = assumption_exp_new
         recorded_var = set()
         new_else_branch = ""
         klee_init_new = ""
-        for key, value in pe.get_effect_new().items():
-            ret_name = ret_binding.get(key, key)
+        old_else_branch = ""
+        klee_init_old = ""
+        for new_key, new_value in pe.get_effect_new().items():
+            ret_name = ret_binding.get(new_key, new_key)
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
             elif isinstance(ret_name, c_ast.Constant):
                 ret_name = str(ret_name.value)
-            assumption_exp_new +=  "\n" + ret_name + " = " + replace_bit_vector(value.replace("true", "1").replace((key + " ="), '')) + ";"
+            assumption_exp +=  "\n" + ret_name + " = " + replace_bit_vector(new_value.replace("true", "1").replace((new_key + " ="), '')) + ";"
             new_else_branch+= "\n" + ret_name + " =  99999;"
             if ret_name not in recorded_var:
                 klee_init_new+= "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name )
                 recorded_var.add(ret_name)
-        assumption_exp_new += "\n} else \n{ " + new_else_branch + "}\n"
-        old_else_branch = ""
-        klee_init_old = ""
-        for key, value in pe.get_effect_old().items():
-            ret_name = ret_binding.get(key, key)
-            if isinstance(ret_name, c_ast.ID):
-                ret_name = ret_name.name
-            elif isinstance(ret_name, c_ast.Constant):
-                ret_name = str(ret_name.value)
-            assumption_exp_old += ret_name + " = " + replace_bit_vector(value.replace("false", "0").replace("true", "1").replace((key + " ="),
-                                                                                                       '') )+ ";"
-            old_else_branch += "\n" + ret_name + " =  99999;"
-            if ret_name not in recorded_var:
-                klee_init_old += "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name)
-                recorded_var.add(ret_name)
-        assumption_exp_old += "\n} else \n{ " + old_else_branch + "}\n"
 
+            old_key = new_key.rstrip("_new") +"_old"
+            old_value = pe.get_effect_old().get(old_key, None)
+            if old_key is not None:
+                ret_name = ret_binding.get(old_key, old_key)
+                if isinstance(ret_name, c_ast.ID):
+                    ret_name = ret_name.name
+                elif isinstance(ret_name, c_ast.Constant):
+                    ret_name = str(ret_name.value)
+                assumption_exp += "\n"+ret_name + " = " + replace_bit_vector(old_value.replace("false", "0").replace("true", "1").replace((old_key + " ="),
+                                                                                                           '') )+ ";"
+                old_else_branch += "\n" + ret_name + " =  99999;"
+                if ret_name not in recorded_var:
+                    klee_init_old += "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name)
+                    recorded_var.add(ret_name)
+        assumption_exp += "\n} else \n{ " + new_else_branch + "\n" + old_else_branch +"}\n"
 
-        old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\n")
-        new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\n")
+        if (ret_binding is None):
+            old_lib_string = old_lib_string_orig.replace("{\n", "{\n" + assumption_exp_new + "}\n")
+            new_lib_string = new_lib_string_orig.replace("{\n", "{\n" + assumption_exp_old + "}\n")
+
         old_lib_klee = "\n" + klee_init_old + "\n"
         new_lib_klee = "\n" + klee_init_new + "\n"
 
@@ -491,9 +497,9 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
         pre_client_string = client_string.replace("lib_old();", "int temp_old = " + generator.visit(lib_old_invo)+";").\
             replace("lib_new();",  "int temp_new = " + generator.visit(lib_new_invo)+";")
 
-        client_string = client_string.replace("lib_old();", assumption_exp_old)
-        klee_client_string = client_string.replace("lib_new();", assumption_exp_new + old_lib_klee + new_lib_klee)
-        client_string = client_string.replace("lib_new();", assumption_exp_new)
+        client_string = client_string.replace("lib_old();", assumption_exp)
+        klee_client_string = client_string.replace("lib_new();", old_lib_klee + new_lib_klee)
+        client_string = client_string.replace("lib_new();", "")
         for funcs in lib_file.ext[2:]:
             client_string+= ("\n" +generator.visit(funcs))
             klee_client_string+= ("\n" +generator.visit(funcs))
@@ -1624,11 +1630,11 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
         node_object = changed_clients[i]
         while (node_object is not None and not node_object.processed):
             node_object.processed = True
-            #print("client " + str(client_index + 1))
-            #print(generator.visit(node_object.node))
+            print("client " + str(client_index + 1))
+            print(generator.visit(node_object.node))
             if (node_object is not None and node_object.node != node_object.lib_node):
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy)
-                #print(generator.visit(node_object.lib_node))
+                print(generator.visit(node_object.lib_node))
             #print ()
             node_object = node_object.parent
             client_index+=1

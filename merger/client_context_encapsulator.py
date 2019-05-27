@@ -156,7 +156,8 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
 
             for defintion in DUV.define:
-                if defintion not in missing_def and defintion in set_of_define_interest:
+                if defintion not in missing_def and (defintion+"_old" in set_of_define_interest or defintion+"_new" in set_of_define_interest or
+                defintion in set_of_define_interest):
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(defintion)))
 
             func_object.arg_lib = new_func
@@ -446,6 +447,11 @@ class CleanUpVisitor(c_ast.NodeVisitor):
                 parent = self.parent_child.get(node, None)
                 if parent is not None and isinstance(parent, c_ast.Compound):
                     parent.block_items=[c_ast.FuncCall(name=c_ast.ID(name="lib_old"), args=None), c_ast.FuncCall(name=c_ast.ID(name="lib_new"), args=None)]
+                    #grandparent = self.parent_child.get(parent, None)
+                    #if grandparent is not None and isinstance(grandparent, c_ast.Compound):
+                        #parent_index = grandparent.block_items.index(parent)
+                        #grandparent.block_items = grandparent.block_items[0:parent_index] + parent.block_items + grandparent.block_items[parent_index+1:]
+
 
 
 
