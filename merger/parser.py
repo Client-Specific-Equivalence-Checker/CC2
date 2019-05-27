@@ -349,10 +349,11 @@ def refine_library(m_file, assumptions, post_assertion, pre_assumptions, outfile
                     m_file_copy.ext[1].body.block_items.pop(index)
                     continue
             break
-        hackie_pre_assumption_string ="int a = !(" + replace_bit_vector(('|'.join(list(pre_assumptions))).replace("false", "0").replace("true", "1")) +");"
-        pre_ass_node = (parser.parse(hackie_pre_assumption_string).ext[0].init)
-        pre_ass_expr =  c_ast.If(cond=pre_ass_node, iftrue=c_ast.Return(expr=constant_zero()), iffalse=None)
-        m_file_copy.ext[1].body.block_items.insert(0, pre_ass_expr)
+        if len(pre_assumptions) > 0:
+            hackie_pre_assumption_string ="int a = !(" + replace_bit_vector(('|'.join(list(pre_assumptions))).replace("false", "0").replace("true", "1")) +");"
+            pre_ass_node = (parser.parse(hackie_pre_assumption_string).ext[0].init)
+            pre_ass_expr =  c_ast.If(cond=pre_ass_node, iftrue=c_ast.Return(expr=constant_zero()), iffalse=None)
+            m_file_copy.ext[1].body.block_items.insert(0, pre_ass_expr)
 
         hackie_post_assertion_string = "int a = (" + replace_bit_vector(('|'.join(list(post_assertion))).replace("false", "0").replace("true", "1")) +");"
         assertion_node = (parser.parse(hackie_post_assertion_string).ext[0].init)

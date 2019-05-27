@@ -73,7 +73,7 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
         new_func = func
 
     func_object.node = parser.version_merge_client(new_func, lib)
-
+    set_of_define_interest = set()
     if func_object.arg_lib is not None and isinstance(func, c_ast.FuncDef):
         temp_client_func = func_object.node
         CUV = CleanUpVisitor()
@@ -81,6 +81,7 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
         DUV = DUVisitor()
         DUV.visit(temp_client_func)
         for missing_def in DUV.missing_define:
+            set_of_define_interest.add(missing_def)
             temp_client_func.body.block_items.insert(0,
                 c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
                            bitsize=None,
@@ -155,7 +156,7 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
 
             for defintion in DUV.define:
-                if defintion not in missing_def:
+                if defintion not in missing_def and defintion in set_of_define_interest:
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(defintion)))
 
             func_object.arg_lib = new_func
