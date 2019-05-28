@@ -11,8 +11,7 @@ from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing import cpu_count
 from threading import Lock
 
-
-
+early_stop = False
 impacted = False
 old_touched = set()
 new_touched = set()
@@ -123,6 +122,7 @@ def main():
     global  r_max_depth
     global SEAHORN
     global KLEE
+    global early_stop
 
 
     parser = argparse.ArgumentParser()
@@ -170,13 +170,24 @@ def main():
                 immediate_callee = client_seq[i]
                 innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i), lock, makeLock])
 
-            results = pool.starmap(CheckMLCs, innput_array)
-            for i in range(len(client_seq)):
-                eq, time = results[i]
-                total_solving_time += time
-                if not eq:
-                    print("Solver decision Time: {time}".format(time=total_solving_time))
-                    exit(1)
+            results = pool.starmap_async(CheckMLCs, innput_array)
+            while(not results.ready() and not early_stop):
+                continue
+            if early_stop:
+                print ("Find counter example")
+                total_timer.end()
+                print("Total Checking Time: {time}".format(time=total_timer.get_time()))
+                exit(1)
+            else:
+                results = results.get()
+                for i in range(len(client_seq)):
+                    eq, time = results[i]
+                    total_solving_time += time
+                    if not eq:
+                        print("Solver decision Time: {time}".format(time=total_solving_time))
+                        total_timer.end()
+                        print("Total Checking Time: {time}".format(time=total_timer.get_time()))
+                        exit(1)
         #seq MLC checking
         else:
             for i in range(len(client_seq)):
@@ -214,6 +225,7 @@ def unclock_actions(lock):
         lock.release()
 
 def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None, makeLock=None):
+    global early_stop
     library_merged_file_name = "merged_{d}.c".format(d=prefix_index)
     library_merged_generalized_file_name = "merged_g_{d}".format(d=prefix_index)
     library_merged_generalized_file_name_extension = library_merged_generalized_file_name+".c"
@@ -263,6 +275,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
             print("Find counter example with the current caller, now grow")
             if immediate_caller.parent is None:
                 print("Grow out of context, CEX")
+                early_stop = True
                 return  False, timer.get_time()
             else:
                 merged_lib = rewrite_lib_file(immediate_caller.lib_node, outfile=library_merged_file_name)
@@ -384,6 +397,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
     global  r_max_depth
     klee_file = None
     pre_cond_file = None
+    origin_lib = lib_file.ext[1]
     lib = copy.deepcopy(lib_file.ext[1])
     is_inlined = False
     #create base line library version
@@ -415,7 +429,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
     assumption_exp_new = "if(" + replace_bit_vector(reduced_parition.replace("false","0").replace("true","1").replace("ret_new =", ''))+ "){\n"
     assumption_exp_old = "if(" + replace_bit_vector(reduced_parition.replace("false","0").replace("true","1").replace("ret_old =", ''))+ "){\n"
 
-    ret_binding = Return_bindings.get(lib, None)
+    ret_binding = Return_bindings.get(origin_lib, None)
     num_ret = len(pe.get_effect_old().keys())
     if (ret_binding is None):
         #klee_assumption_string_new= assumption_exp_new
@@ -459,12 +473,14 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
                     ret_name = ret_name.name
                 elif isinstance(ret_name, c_ast.Constant):
                     ret_name = str(ret_name.value)
-                assumption_exp += "\n"+ret_name + " = " + replace_bit_vector(old_value.replace("false", "0").replace("true", "1").replace((old_key + " ="),
-                                                                                                           '') )+ ";"
-                old_else_branch += "\n" + ret_name + " =  99999;"
-                if ret_name not in recorded_var:
-                    klee_init_old += "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name)
-                    recorded_var.add(ret_name)
+                #only process the ret value if it is an exclusive member of old lib ret
+                if ret_name.endswith("_old"):
+                    assumption_exp += "\n"+ret_name + " = " + replace_bit_vector(old_value.replace("false", "0").replace("true", "1").replace((old_key + " ="),
+                                                                                                               '') )+ ";"
+                    old_else_branch += "\n" + ret_name + " =  99999;"
+                    if ret_name not in recorded_var:
+                        klee_init_old += "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name)
+                        recorded_var.add(ret_name)
         assumption_exp += "\n} else \n{ " + new_else_branch + "\n" + old_else_branch +"}\n"
 
         if (ret_binding is None):

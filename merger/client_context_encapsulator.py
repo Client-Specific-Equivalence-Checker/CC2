@@ -411,7 +411,7 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
             child_parent = self.parent_child.get(known_child_content, None)
             if child_parent is not None and isinstance(child_parent, c_ast.Compound):
                 index = child_parent.block_items.index(known_child_content)
-                child_parent = copy.deepcopy(child_parent)
+                #child_parent = copy.deepcopy(child_parent)
                 child_parent.block_items[index] = c_ast.Compound(block_items=[c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=c_ast.ParamList(params =[])), known_child_content])
                 hook_installed = True
                 should_remove = True
