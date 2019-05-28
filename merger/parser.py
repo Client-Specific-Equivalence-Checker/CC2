@@ -581,6 +581,8 @@ def write_out_generalizible_lib(merged_file, filename, should_copy = True, preco
                     old_nodes.append(node)
                 elif re.match('ret_\d_new',node.name):
                     new_nodes.append(node)
+    if merged_lib.decl.type.args is None:
+        merged_lib.decl.type.args = c_ast.ParamList([])
     for old_node in old_nodes:
         merged_lib.decl.type.args.params.append(c_ast.Decl(name=old_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
                                                        type=c_ast.TypeDecl(declname=old_node.name, quals=[], type=c_ast.IdentifierType(['int']))))
@@ -1634,7 +1636,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
             print(generator.visit(node_object.node))
             if (node_object is not None and node_object.node != node_object.lib_node):
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy)
-                print(generator.visit(node_object.lib_node))
+                #print(generator.visit(node_object.lib_node))
             #print ()
             node_object = node_object.parent
             client_index+=1
@@ -1672,7 +1674,7 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
     main_function = copy.deepcopy(merged_lib)
     main_function.decl.name = "main"
     function_rename(main_function, "main")
-    main_function.decl.type.args = None
+    main_function.decl.type.args = c_ast.ParamList([])
     main_function.body.block_items = []
     arg_list = []
     if (params is not None):

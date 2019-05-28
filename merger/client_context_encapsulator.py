@@ -104,7 +104,6 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                 renamed_type = renamed_type.type
                 template_type = template_type.type
             renamed_type.declname = template_type.declname
-            new_func.decl.type.args = None
             new_func.decl.type.args = c_ast.ParamList([])
             new_func.body.block_items = []
             new_func.body.block_items.append(copy.deepcopy(func))
@@ -138,7 +137,6 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                 renamed_type = renamed_type.type
                 template_type = template_type.type
             renamed_type.declname = template_type.declname
-            new_func.decl.type.args = None
             new_func.decl.type.args = c_ast.ParamList([])
             new_func.body.block_items = []
             if isinstance(func, c_ast.Compound):
@@ -307,8 +305,7 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                     while c_node is not None:
                         pure_loop_check = isinstance(c_node, c_ast.While) or isinstance(c_node,
                                                                                         c_ast.For)
-                        loop_type_check = pure_loop_check or isinstance(c_node,
-                                                                                                                 c_ast.DoWhile)
+                        loop_type_check = pure_loop_check or isinstance(c_node, c_ast.DoWhile)
                         if loop_type_check or c_node == self.client:
                             c_object = self.node_dict.get(c_node, None)
                             if (c_object is None):
@@ -332,10 +329,63 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                             self.add_parent_child(c_object, l_object)
                             l_object = c_object
 
+                        elif isinstance(c_node, c_ast.Compound ) and not isinstance(child_node, c_ast.FuncDef):
+                            child_loc = c_node.block_items.index(child_node)
+                            pre_loop, post_loop = self.compute_loop_usage_block(c_node, child_loc)
+                            if len(pre_loop) > len(post_loop):
+                                max_len = len(pre_loop)
+                            else:
+                                max_len = len(post_loop)
+                            if max_len > 0:
+                                for i in range(max_len):
+                                    if i < len(pre_loop):
+                                        pre_index = pre_loop[i] + 1
+                                    else:
+                                        pre_index = 0
+
+                                    if i < len(post_loop):
+                                        post_index = post_loop[i]
+                                    else:
+                                        post_index = len(c_node.block_items)
+
+                                    raw_l_object = l_object
+                                    context = c_ast.Compound(
+                                        block_items=copy.deepcopy(c_node.block_items[pre_index: post_index]))
+                                    c_object = self.create_ClientContextNode(context, copy.deepcopy(child_node), None, copy.deepcopy(child_node),
+                                                                             raw_l_object)
+                                    self.add_parent_child(c_object, l_object)
+                                    l_object = c_object
+
+
                         child_node = c_node
                         c_node = self.parent_child.get(c_node, None)
 
                     self.root = c_object
+
+    def compute_loop_usage_block(self, node, child_index):
+        if isinstance(node, c_ast.Compound):
+            pre_loop = []
+            post_loop = []
+            for index in range(child_index+1, len(node.block_items)):
+                block = node.block_items[index]
+                LPH = LooplHunter()
+                LPH.visit(block)
+                if LPH.use_loop:
+                    post_loop.append(index)
+
+            for index in range(child_index-1, -1, -1):
+                block = node.block_items[index]
+                LPH = LooplHunter()
+                LPH.visit(block)
+                if LPH.use_loop:
+                    pre_loop.append(index)
+
+            return pre_loop, post_loop
+
+
+
+
+
 
     def add_parent_child(self, parent, child):
         parent.children.append(child)
@@ -358,7 +408,8 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
             child_parent = self.parent_child.get(known_child_content, None)
             if child_parent is not None and isinstance(child_parent, c_ast.Compound):
                 index = child_parent.block_items.index(known_child_content)
-                child_parent.block_items[index] = c_ast.Compound(block_items=[c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=None), known_child_content])
+                child_parent = copy.deepcopy(child_parent)
+                child_parent.block_items[index] = c_ast.Compound(block_items=[c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=c_ast.ParamList(params =[])), known_child_content])
                 hook_installed = True
                 should_remove = True
 
@@ -425,6 +476,25 @@ class LibCallHunter(c_ast.NodeVisitor):
                 return
             else:
                 self.visit(node.args)
+
+
+class LooplHunter(c_ast.NodeVisitor):
+
+    def __init__(self):
+        self.use_loop = False
+
+
+    def visit_For(self, node):
+        if isinstance(node, c_ast.For):
+            self.use_loop = True
+
+    def visit_While(self, node):
+        if isinstance(node, c_ast.While):
+            self.use_loop = True
+
+    def visit_DoWhile(self, node):
+        if isinstance(node, c_ast.DoWhile):
+            self.use_loop = True
 
 
 
