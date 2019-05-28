@@ -165,9 +165,10 @@ def main():
             pool = ThreadPool(int(cpu_count()/2))
             innput_array =[]
             lock = Lock()
+            makeLock = Lock()
             for i in range(len(client_seq)):
                 immediate_callee = client_seq[i]
-                innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i), lock])
+                innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i), lock, makeLock])
 
             results = pool.starmap(CheckMLCs, innput_array)
             for i in range(len(client_seq)):
@@ -212,7 +213,7 @@ def unclock_actions(lock):
     if lock is not None :
         lock.release()
 
-def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None):
+def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None, makeLock=None):
     library_merged_file_name = "merged_{d}.c".format(d=prefix_index)
     library_merged_generalized_file_name = "merged_g_{d}".format(d=prefix_index)
     library_merged_generalized_file_name_extension = library_merged_generalized_file_name+".c"
@@ -221,7 +222,6 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     client_merged_generalized_file_extension = client_merged_generalized_file + ".c"
     client_merged_precond_file = "client_merged_pre_cond_g_{d}".format(d=prefix_index)
     client_merged_precond_file_extension = client_merged_precond_file + ".c"
-
     timer = Timer()
     assumption_set = set()
     post_assertion_set = set()
@@ -250,7 +250,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
 
     while (len(arg_map.keys()) > 0) and not immediate_caller.check_leaves():
         write_out_generalizible_lib(merged_lib, library_merged_generalized_file_name_extension, lib_name=args.lib)
-        pe = generalizer.generalize(library_merged_generalized_file_name, args.lib, arg_map[args.lib], timer=timer)
+        pe = generalizer.generalize(library_merged_generalized_file_name, args.lib, arg_map[args.lib], timer=timer, lock=makeLock)
         assumption_set.add(pe.get_parition())
         restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
         inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node, merged_outfile =client_merged_file_name)
@@ -295,14 +295,14 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
             if g_klee_file is not None:
                 write_out_generalizible_client(g_klee_file, client_merged_generalized_file_extension, False, lib_name=args.lib)
                 cpe = generalizer.generalize_client(client_merged_generalized_file, args.client, inlined, num_ret, lib_name=args.lib,
-                                                    timer=timer)
+                                                    timer=timer, lock=makeLock)
                 if (len(post_assertion_set) == 0):
                     post_assertion_set.update(cpe.get_base_assumption())
                 post_assertion_set.update(cpe.get_post_assertion_list())
             if pre_cond_file is not None and len(pre_assumption_set) == 0:
                 write_out_generalizible_client(pre_cond_file, client_merged_precond_file_extension, True, lib_name=args.lib)
                 ppe = generalizer.generalize_pre_client(client_merged_precond_file, args.client, inlined, num_ret,
-                                                        param_list, lib_name=args.lib, timer=timer)
+                                                        param_list, lib_name=args.lib, timer=timer, lock=makeLock)
                 pre_assumption_set.update(ppe.get_preconditions())
             refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set, outfile=library_merged_file_name)
 
@@ -384,7 +384,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
     global  r_max_depth
     klee_file = None
     pre_cond_file = None
-    lib = lib_file.ext[1]
+    lib = copy.deepcopy(lib_file.ext[1])
     is_inlined = False
     #create base line library version
     if (old_lib_string is None or new_lib_string is None):
@@ -564,7 +564,7 @@ def write_out_generalizible_client(input_file, outputfile, precondition, lib_nam
     client_file = parse_file(input_file, use_cpp=True,
                          cpp_path='gcc',
                          cpp_args=['-E', r'-Iutils/fake_libc_include'])
-    return write_out_generalizible_lib(client_file, outputfile, should_copy=False, precondition_only=precondition, lib_name =lib_name)
+    return write_out_generalizible_lib(client_file, outputfile, should_copy=True, precondition_only=precondition, lib_name =lib_name)
 
 
 

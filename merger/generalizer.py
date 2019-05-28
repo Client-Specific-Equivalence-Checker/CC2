@@ -1,10 +1,11 @@
 import shlex, subprocess
 import re
 from pycparser import parse_file, c_generator, c_ast, c_parser
+from merger.parser import  lock_actions, unclock_actions
 
 template_string = 'CILLY=cilly\nCLANG=clang-6.0\nKLEE=klee\nCOPTS=-Wno-attributes\nINSTKLEE=/home/fengnick/CLEVER+/klee/_build/instKlee.cma\n# if instKlee has been installed, you can also use:\n# INSTKLEE=instKlee\n\nexport CIL_FEATURES=cil.oneret\n\n.PHONY: all clean\n\n{SOURCENAME}:{SOURCENAME}.c\n\t$(CILLY) $(COPTS) --save-temps --noPrintLn -c --load=$(INSTKLEE) --doinstKlee --entry={LIBNAME}  {ASSUMPTIONS} {SOURCENAME}.c\n\nclean:\n\trm -rf *.o *.i *.cil.* klee-*\n'
 
-def generalize(source, libname, cex_args, timer=None):
+def generalize(source, libname, cex_args, timer=None, lock=None):
     assumption_list = []
     for arg, cex in cex_args.items():
         assumption_list.append(' == '.join([arg, repr(cex)]))
@@ -12,10 +13,11 @@ def generalize(source, libname, cex_args, timer=None):
     if len(assumptions) >0:
         assumptions="--assume='{ass}'".format(ass=assumptions)
     makeString = template_string.format(SOURCENAME = source, ASSUMPTIONS=assumptions, LIBNAME=libname)
+    lock_actions(lock)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
-
     subprocess.call("make")
+    unclock_actions(lock)
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" %source )
     subprocess.call(args)
     args = shlex.split("klee -write-no-tests -single-path=true -entry-point=%s %s.cil.bc" % (libname, source))
@@ -31,12 +33,13 @@ def generalize(source, libname, cex_args, timer=None):
     #print(new_pe.get_effect_old())
     return new_pe
 
-def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name ="lib", timer= None):
+def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name ="lib", timer= None, lock=None):
     makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
+    lock_actions(lock)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
-
     subprocess.call("make")
+    unclock_actions(lock)
     if is_inlined:
         with open(source+".cil.c", 'r') as cil_file:
             cil_file_content = cil_file.read()
@@ -70,13 +73,13 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
     #print(new_pe.get_client_specific_assertions())
     return new_pe
 
-def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[] , lib_name="lib", timer= None):
+def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[] , lib_name="lib", timer= None, lock=None):
+    lock_actions(lock)
     makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
-
     subprocess.call("make")
-
+    unclock_actions(lock)
     cil_file_name = source+".cil.c"
     client_file = parse_file(cil_file_name, use_cpp=True,
                              cpp_path='gcc',
