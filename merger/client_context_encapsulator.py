@@ -432,6 +432,8 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                 checking_blocks = node.iftrue.block_items
         elif isinstance(node, c_ast.FuncDef):
             checking_blocks = node.body.block_items
+        elif isinstance(node, c_ast.Compound):
+            checking_blocks = node.block_items
         else:
             checking_blocks = []
 
