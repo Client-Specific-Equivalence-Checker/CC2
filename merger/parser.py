@@ -232,7 +232,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     bmc_incremental = str_to_boolean(args.bmc_incremental)
     hybrid_sovling = str_to_boolean(args.hybrid)
     lock_actions(lock)
-    if (immediate_caller.checked):
+    if (immediate_caller.checked) or immediate_caller.check_leaves():
         unclock_actions(lock)
         return True, timer.get_time()
     immediate_caller.verify_checked()
@@ -248,7 +248,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                                  merged_lib=merged_lib, post_assertion_set=post_assertion_set,
                                  pre_assumption_set=pre_assumption_set)
 
-    while (len(arg_map.keys()) > 0):
+    while (len(arg_map.keys()) > 0) and not immediate_caller.check_leaves():
         write_out_generalizible_lib(merged_lib, library_merged_generalized_file_name_extension, lib_name=args.lib)
         pe = generalizer.generalize(library_merged_generalized_file_name, args.lib, arg_map[args.lib], timer=timer)
         assumption_set.add(pe.get_parition())
@@ -268,7 +268,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                 merged_lib = rewrite_lib_file(immediate_caller.lib_node, outfile=library_merged_file_name)
                 immediate_caller = immediate_caller.parent
                 lock_actions(lock)
-                if (immediate_caller.checked):
+                if (immediate_caller.checked) or immediate_caller.check_leaves():
                     unclock_actions(lock)
                     return True, timer.get_time()
                 immediate_caller.verify_checked()
@@ -315,6 +315,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     # We have proved CSE for a lib call-site, mark all verified callers and move on
     lock_actions(lock)
     immediate_caller.verify_checked()
+    immediate_caller.mark_leaves()
     unclock_actions(lock)
     # add the current caller to MSC
     MSCs.append(immediate_caller)

@@ -297,9 +297,10 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
         if isinstance(node, c_ast.FuncCall):
             if isinstance(node.name, c_ast.ID):
                 if node.name.name == self.lib_name:
-                    l_object = self.create_ClientContextNode(node, node, None, node, None)
+                    l_object, _ = self.create_ClientContextNode(node, node, None, node, None)
                     self.node_dict[node] = l_object
                     self.leaves.append(l_object)
+                    leaf = set([l_object])
                     c_node = node
                     child_node = node
                     while c_node is not None:
@@ -312,19 +313,19 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                                 if (loop_type_check):
                                     if (isinstance(c_node, c_ast.While)):
                                         child_node_with_loop_context = c_ast.If(cond=c_node.cond, iftrue=child_node, iffalse=None)
-                                        c_object = self.create_ClientContextNode(child_node_with_loop_context, c_node, None, c_node,
-                                                                                 l_object)
+                                        c_object, leaf = self.create_ClientContextNode(child_node_with_loop_context, c_node, None, c_node,
+                                                                                 l_object, leaf)
                                     elif isinstance(c_node, c_ast.For):
                                         child_node_with_loop_context = c_ast.If(cond=c_node.cond, iftrue=child_node,
                                                                                 iffalse=None)
                                         child_node_with_loop_context_complete = c_ast.Compound(block_items=[c_node.init,child_node_with_loop_context ])
-                                        c_object = self.create_ClientContextNode(child_node_with_loop_context_complete, c_node,
+                                        c_object, leaf = self.create_ClientContextNode(child_node_with_loop_context_complete, c_node,
                                                                                  None, c_node,
-                                                                                 l_object)
+                                                                                 l_object,  leaf)
                                     else:
-                                        c_object = self.create_ClientContextNode(child_node, c_node, None, c_node, l_object)
+                                        c_object, leaf = self.create_ClientContextNode(child_node, c_node, None, c_node, l_object, leaf)
                                 else:
-                                    c_object = self.create_ClientContextNode(c_node, copy.deepcopy(c_node), None, c_node, l_object)
+                                    c_object, leaf = self.create_ClientContextNode(c_node, copy.deepcopy(c_node), None, c_node, l_object, leaf)
                                 self.node_dict[c_node]=c_object
                             self.add_parent_child(c_object, l_object)
                             l_object = c_object
@@ -351,8 +352,8 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                                     raw_l_object = l_object
                                     context = c_ast.Compound(
                                         block_items=copy.deepcopy(c_node.block_items[pre_index: post_index]))
-                                    c_object = self.create_ClientContextNode(context, copy.deepcopy(child_node), None, copy.deepcopy(child_node),
-                                                                             raw_l_object)
+                                    c_object, leaf = self.create_ClientContextNode(context, copy.deepcopy(child_node), None, copy.deepcopy(child_node),
+                                                                             raw_l_object, leaf)
                                     self.add_parent_child(c_object, l_object)
                                     l_object = c_object
 
@@ -394,12 +395,14 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
             child.lib_node = parent.arg_lib
 
 
-    def create_ClientContextNode(self, node, lib_node, parent, raw_lib_node, known_child=None):
+    def create_ClientContextNode(self, node, lib_node, parent, raw_lib_node, known_child=None ,leaf=None):
         global  is_MLCCheker
         hook_installed = False
         should_remove = False
         node_copy = copy.deepcopy(node)
-        start, end, arg_lib, arg_client  = self.merge_libs_calls(copy.deepcopy(node))
+        start, end, arg_lib, arg_client, new_leaf  = self.merge_libs_calls(node)
+        if leaf is not None and len(new_leaf) > 0:
+            leaf = leaf.union(new_leaf)
         if arg_client is not None and arg_lib is not None:
             node = arg_client
             hook_installed = True
@@ -413,13 +416,13 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                 hook_installed = True
                 should_remove = True
 
-        result = complete_functions(ClientContextDag(copy.deepcopy(node),node_copy, copy.deepcopy(lib_node), parent, raw_lib_node, arg_lib), self.client, self.lib_name, is_MLCCheker=is_MLCCheker)
+        result = complete_functions(ClientContextDag(copy.deepcopy(node),node_copy, copy.deepcopy(lib_node), parent, raw_lib_node, arg_lib, leaf =leaf), self.client, self.lib_name, is_MLCCheker=is_MLCCheker)
         if (hook_installed):
             CUV = CleanUpVisitor()
             CUV.visit(result.node)
             if should_remove:
                 child_parent.block_items.pop(index)
-        return result
+        return result, leaf
 
     def merge_libs_calls(self, node):
         start = -1
@@ -437,11 +440,16 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
         else:
             checking_blocks = []
 
+        new_leaf = set()
         for index in range(len(checking_blocks)):
             LibCV.use_lib = False
             block = checking_blocks[index]
             LibCV.visit(block)
             if LibCV.use_lib:
+                for lib in LibCV.lib_node:
+                    l_object = self.node_dict.get(lib, None)
+                    if l_object is not None:
+                        new_leaf.add(l_object)
                 if (start == -1):
                     start = index
                 if (end < index):
@@ -460,7 +468,7 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                 argumented_client.body.block_items = blocks[:start] + [c_ast.Compound(block_items=
                     [c_ast.FuncCall(name=c_ast.ID(name="CLEVER_DELETE"), args=None)] + checking_blocks[start:end+1])] + blocks[end+1:]
 
-        return start, end, argumented_lib, argumented_client
+        return start, end, argumented_lib, argumented_client, new_leaf
 
 
 
@@ -468,6 +476,7 @@ class LibCallHunter(c_ast.NodeVisitor):
 
     def __init__(self, lib_name):
         self.use_lib = False
+        self.lib_node =[]
         self.lib_name = lib_name
 
 
@@ -475,9 +484,8 @@ class LibCallHunter(c_ast.NodeVisitor):
         if isinstance(node, c_ast.FuncCall):
             if node.name.name == self.lib_name:
                 self.use_lib = True
-                return
-            else:
-                self.visit(node.args)
+                self.lib_node.append(node)
+            self.visit(node.args)
 
 
 class LooplHunter(c_ast.NodeVisitor):
@@ -530,7 +538,7 @@ class CleanUpVisitor(c_ast.NodeVisitor):
 
 
 class ClientContextDag(object):
-    def __init__(self, node, raw_node, lib_node,  parent, raw_lib_node, arg_lib = None):
+    def __init__(self, node, raw_node, lib_node,  parent, raw_lib_node, arg_lib = None, leaf=set()):
         self.node = node
         self.raw_node = raw_node
         self.lib_node = lib_node
@@ -539,9 +547,21 @@ class ClientContextDag(object):
         self.children = []
         self.checked = False
         self.processed = False
+        self.eqiv = False
         self.arg_lib = arg_lib
+        self.leaf = leaf
 
     def verify_checked(self):
         self.checked = True
         for child in self.children:
             child.verify_checked()
+
+    def check_leaves(self):
+        for l in self.leaf:
+            if not l.eqiv:
+                return False
+        return True
+
+    def mark_leaves(self):
+        for l in self.leaf:
+            l.eqiv = True
