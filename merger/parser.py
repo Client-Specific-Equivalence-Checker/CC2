@@ -1653,8 +1653,8 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
             print(generator.visit(node_object.node))
             if (node_object is not None and node_object.node != node_object.lib_node):
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy)
-                #print(generator.visit(node_object.lib_node))
-            #print ()
+                print(generator.visit(node_object.lib_node))
+            print ()
             node_object = node_object.parent
             client_index+=1
 
@@ -1698,7 +1698,7 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
         for item in params.params:
             main_function.body.block_items.append(copy.deepcopy(item))
             arg_list.append(c_ast.ID(name=item.name))
-    main_function.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name=lib), args=c_ast.ExprList(exprs=arg_list)))
+    main_function.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name= merged_lib.decl.name), args=c_ast.ExprList(exprs=arg_list)))
     m_file = c_ast.FileAST(ext=[main_function, merged_lib, lib_old, lib_new])
 
     return m_file

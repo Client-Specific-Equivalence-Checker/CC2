@@ -74,12 +74,15 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
 
     func_object.node = parser.version_merge_client(new_func, lib)
     set_of_define_interest = set()
+    set_of_change_define_interest =set()
     if func_object.arg_lib is not None and isinstance(func, c_ast.FuncDef):
         temp_client_func = func_object.node
         CUV = CleanUpVisitor()
         CUV.visit(temp_client_func)
         DUV = DUVisitor()
         DUV.visit(temp_client_func)
+        for define in DUV.define:
+            set_of_change_define_interest.add(define)
         for missing_def in DUV.missing_define:
             set_of_define_interest.add(missing_def)
             temp_client_func.body.block_items.insert(0,
@@ -154,8 +157,9 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
 
             for defintion in DUV.define:
-                if defintion not in missing_def and (defintion+"_old" in set_of_define_interest or defintion+"_new" in set_of_define_interest or
-                defintion in set_of_define_interest):
+                if defintion not in missing_def and ((defintion+"_old" in set_of_define_interest or defintion+"_new" in set_of_define_interest or
+                defintion in set_of_define_interest) or (defintion in DUV.value_changed and (defintion+"_old" in set_of_change_define_interest) or
+                                                         (defintion+"_new" in set_of_change_define_interest))):
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(defintion)))
 
             func_object.arg_lib = new_func
