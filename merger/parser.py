@@ -457,8 +457,8 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
             ret_name = ret_binding.get(new_key, new_key)
             if isinstance(ret_name, c_ast.ID):
                 ret_name = ret_name.name
-            elif isinstance(ret_name, c_ast.Constant):
-                ret_name = str(ret_name.value)
+            else:
+                ret_name = new_key
             assumption_exp +=  "\n" + ret_name + " = " + replace_bit_vector(new_value.replace("true", "1").replace((new_key + " ="), '')) + ";"
             new_else_branch+= "\n" + ret_name + " =  99999;"
             if ret_name not in recorded_var:
@@ -471,8 +471,8 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
                 ret_name = ret_binding.get(old_key, old_key)
                 if isinstance(ret_name, c_ast.ID):
                     ret_name = ret_name.name
-                elif isinstance(ret_name, c_ast.Constant):
-                    ret_name = str(ret_name.value)
+                else:
+                    ret_name = old_key
                 #only process the ret value if it is an exclusive member of old lib ret
                 if ret_name.endswith("_old"):
                     assumption_exp += "\n"+ret_name + " = " + replace_bit_vector(old_value.replace("false", "0").replace("true", "1").replace((old_key + " ="),
