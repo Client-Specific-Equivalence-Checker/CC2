@@ -200,7 +200,7 @@ class LibInvocVisitor(c_ast.NodeVisitor):
                 if parent is not None and isinstance(parent, c_ast.Assignment):
                     grandparent = self.parent_child.get(parent, None)
                     if grandparent is not None and isinstance(grandparent, c_ast.Compound):
-                        self.tobeInserted.append((grandparent, parent, make_klee_symbolic(parent.lvalue.name, "delta_ret_0_"+post_fix)))
+                        self.tobeInserted.append((grandparent, parent, make_klee_symbolic(parent.lvalue.name, "delta_CLEVER_ret_0_"+post_fix)))
 
 
     def work(self):
@@ -259,7 +259,7 @@ class PEClientPair(object):
         self.delta_set=()
         self.is_inlined = is_inlined
         for i in range(num_ret):
-            self.base_assumptions.add(("ret_{d}_old".format(d=i), "ret_{d}_new".format(d=i)))
+            self.base_assumptions.add(("CLEVER_ret_{d}_old".format(d=i), "CLEVER_ret_{d}_new".format(d=i)))
         pe_set = pe_result.split("Partition:")
         for pe in pe_set:
             if len(pe) > 0:
@@ -273,8 +273,8 @@ class PEClientPair(object):
                 effect_dict ={}
                 for k in range(len(pe_list)):
                     clean = pe_list[k][7:]
-                    match_old = re.search(' (ret_\d_old)\s*=\s*(.*)', clean)
-                    match_new = re.search(' (ret_\d_new)\s*=\s*(.*)', clean)
+                    match_old = re.search(' (CLEVER_ret_\d_old)\s*=\s*(.*)', clean)
+                    match_new = re.search(' (CLEVER_ret_\d_new)\s*=\s*(.*)', clean)
                     if match_old:
                         effect_dict[match_old.group(1)] = match_old.group(2).replace("delta_", "")
                     elif match_new:
@@ -344,8 +344,8 @@ class PEpair(object):
         self.old_effect = {}
         for k in range(i, len(parition_effects)):
                 clean =  parition_effects[k][7:]
-                match_old = re.search('(ret_\d_old).*',clean)
-                match_new = re.search('(ret_\d_new).*',clean)
+                match_old = re.search('(CLEVER_ret_\d_old).*',clean)
+                match_new = re.search('(CLEVER_ret_\d_new).*',clean)
                 if match_old:
                     self.old_effect[match_old.group(1)] = clean
                 elif match_new:

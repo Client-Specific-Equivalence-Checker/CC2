@@ -552,9 +552,9 @@ def write_out_generalizible_client_imp(merged_file, filename):
     new_nodes= []
     for node in merged_client.body.block_items:
             if isinstance(node, c_ast.Decl):
-                if re.match('ret_\d_old',node.name):
+                if re.match('CLEVER_ret_\d_old',node.name):
                     old_nodes.append(node)
-                elif re.match('ret_\d_new',node.name):
+                elif re.match('CLEVER_ret_\d_new',node.name):
                     new_nodes.append(node)
     for old_node in old_nodes:
         merged_client.decl.type.args.params.append(c_ast.Decl(name=old_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
@@ -594,9 +594,9 @@ def write_out_generalizible_lib(merged_file, filename, should_copy = True, preco
     new_nodes= []
     for node in merged_lib.body.block_items:
             if isinstance(node, c_ast.Decl):
-                if re.match('ret_\d_old',node.name):
+                if re.match('CLEVER_ret_\d_old',node.name):
                     old_nodes.append(node)
-                elif re.match('ret_\d_new',node.name):
+                elif re.match('CLEVER_ret_\d_new',node.name):
                     new_nodes.append(node)
     if merged_lib.decl.type.args is None:
         merged_lib.decl.type.args = c_ast.ParamList([])
@@ -1534,23 +1534,23 @@ def merge_libs(old_lib, new_lib):
     global Return_bindings
     clear_global()
     # convert returns into assignment
-    ret_v = ReturnHuntVisitor("int", "ret_{}_old")
+    ret_v = ReturnHuntVisitor("int", "CLEVER_ret_{}_old")
     ret_v.visit(old_lib, None)
     binding = ret_v.assignment_bindings
 
     ret_num = ret_v.return_nums
-    ret_v = ReturnHuntVisitor("int", "ret_{}_new")
+    ret_v = ReturnHuntVisitor("int", "CLEVER_ret_{}_new")
     ret_v.visit(new_lib, None)
     binding.update(ret_v.assignment_bindings)
 
     for i in range(ret_num):
-        old_lib.body.block_items.insert(0, c_ast.Decl(name="ret_{}_old".format(i), quals=[], storage=[], init=constant_zero(), funcspec=[],
+        old_lib.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_{}_old".format(i), quals=[], storage=[], init=constant_zero(), funcspec=[],
                                                       bitsize=None,
-                                                      type=c_ast.TypeDecl(declname="ret_{}_old".format(i), quals=[],
+                                                      type=c_ast.TypeDecl(declname="CLEVER_ret_{}_old".format(i), quals=[],
                                                                           type=c_ast.IdentifierType(['int']))))
-        new_lib.body.block_items.insert(0, c_ast.Decl(name="ret_{}_new".format(i), quals=[], storage=[], init=constant_zero(), funcspec=[],
+        new_lib.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_{}_new".format(i), quals=[], storage=[], init=constant_zero(), funcspec=[],
                                                       bitsize=None,
-                                                      type=c_ast.TypeDecl(declname="ret_{}_new".format(i), quals=[],
+                                                      type=c_ast.TypeDecl(declname="CLEVER_ret_{}_new".format(i), quals=[],
                                                                           type=c_ast.IdentifierType(['int']))))
     merged_ast = merge(old_lib.body, new_lib.body)
 
@@ -1592,16 +1592,16 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     #convert returns into assignment
     r_types = get_type(old_lib_node)
     r_type = r_types[0]
-    ret_v = ReturnHuntVisitor(r_type, "ret_{}_old", single_return=True)
+    ret_v = ReturnHuntVisitor(r_type, "CLEVER_ret_{}_old", single_return=True)
     ret_v.visit(old_lib_node, None)
-    old_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_0_old", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="ret_0_old", quals=[], type=c_ast.IdentifierType(r_types))))
+    old_lib_node.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_0_old", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname="CLEVER_ret_0_old", quals=[], type=c_ast.IdentifierType(r_types))))
     r_types = get_type(new_lib_node)
     r_type = r_types[0]
-    ret_v = ReturnHuntVisitor(r_type, "ret_{}_new", single_return=True)
+    ret_v = ReturnHuntVisitor(r_type, "CLEVER_ret_{}_new", single_return=True)
     ret_v.visit(new_lib_node, None)
-    new_lib_node.body.block_items.insert(0, c_ast.Decl(name="ret_0_new", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="ret_0_new", quals=[], type=c_ast.IdentifierType(r_types))))
+    new_lib_node.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_0_new", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname="CLEVER_ret_0_new", quals=[], type=c_ast.IdentifierType(r_types))))
 
     merged_ast = merge(old_lib_node.body, new_lib_node.body)
 
@@ -1611,8 +1611,8 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     generator = c_generator.CGenerator()
 
     if (lib_eq_assetion):
-        merged_ast.block_items.append(c_ast.FuncCall(name = c_ast.ID(name = 'assert'), args= c_ast.BinaryOp(op='==',left= c_ast.ID(name="ret_0_old"),
-                                                                                                            right=c_ast.ID(name="ret_0_new") )))
+        merged_ast.block_items.append(c_ast.FuncCall(name = c_ast.ID(name = 'assert'), args= c_ast.BinaryOp(op='==',left= c_ast.ID(name="CLEVER_ret_0_old"),
+                                                                                                            right=c_ast.ID(name="CLEVER_ret_0_new") )))
         params = merged_lib.decl.type.args
 
         main_function = copy.deepcopy(merged_lib)
@@ -1683,8 +1683,8 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
     function_rename(merged_lib, lib)
     for i in range(return_num):
         merged_lib.body.block_items.append(
-            c_ast.FuncCall(name=c_ast.ID(name='assert'), args=c_ast.BinaryOp(op='==', left=c_ast.ID(name="ret_{}_old".format(i)),
-                                                                             right=c_ast.ID(name="ret_{}_new".format(i)))))
+            c_ast.FuncCall(name=c_ast.ID(name='assert'), args=c_ast.BinaryOp(op='==', left=c_ast.ID(name="CLEVER_ret_{}_old".format(i)),
+                                                                             right=c_ast.ID(name="CLEVER_ret_{}_new".format(i)))))
 
     params = merged_lib.decl.type.args
 
@@ -1715,8 +1715,8 @@ def version_merge_client(client, lib):
     merged_client, return_num = merge_libs(old_client, new_client)
     for i in range(return_num):
         merged_client.body.block_items.append(
-            c_ast.FuncCall(name=c_ast.ID(name='assert'), args=c_ast.BinaryOp(op='==', left=c_ast.ID(name="ret_{}_old".format(i)),
-                                                                             right=c_ast.ID(name="ret_{}_new".format(i)))))
+            c_ast.FuncCall(name=c_ast.ID(name='assert'), args=c_ast.BinaryOp(op='==', left=c_ast.ID(name="CLEVER_ret_{}_old".format(i)),
+                                                                             right=c_ast.ID(name="CLEVER_ret_{}_new".format(i)))))
     return merged_client
 
 
