@@ -1679,8 +1679,8 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
     renamer.version = "old"
     renamer.visit(old_lib)
     merged_lib, return_num = merge_libs(old_lib, new_lib)
-    merged_lib.decl.name = "lib"
-    function_rename(merged_lib, "lib")
+    merged_lib.decl.name = lib
+    function_rename(merged_lib, lib)
     for i in range(return_num):
         merged_lib.body.block_items.append(
             c_ast.FuncCall(name=c_ast.ID(name='assert'), args=c_ast.BinaryOp(op='==', left=c_ast.ID(name="ret_{}_old".format(i)),
