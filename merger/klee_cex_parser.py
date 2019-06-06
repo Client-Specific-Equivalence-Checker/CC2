@@ -44,12 +44,13 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
             calling_list = []
             to_be_inserted = []
             arg_list = []
-            for decl in lib_file.decl.type.args.params:
-                calling_list.append(c_ast.ID(name=decl.name))
-                arg_list.append(decl)
-                arg_list.append(make_klee_symbolic(decl.name, decl.name))
+            if lib_file.decl.type.args is not None:
+                for decl in lib_file.decl.type.args.params:
+                    calling_list.append(c_ast.ID(name=decl.name))
+                    arg_list.append(decl)
+                    arg_list.append(make_klee_symbolic(decl.name, decl.name))
+                lib_file.decl.type.args.params = []
 
-            lib_file.decl.type.args.params = []
             assertion_exp = []
             to_be_removed = []
 
@@ -142,6 +143,8 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
                 all_argmap[library] = argmap
                 cex_args  = cex_lines.split(',')
                 for cex_arg in cex_args:
+                    if cex_arg == '':
+                        continue
                     cex_arg_tuple = cex_arg.split('=')
                     key, value = cex_arg_tuple[0], cex_arg_tuple[1]
                     if key in lib_args:

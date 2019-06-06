@@ -226,6 +226,7 @@ def unclock_actions(lock):
 
 def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None, makeLock=None):
     global early_stop
+    global INDEP_INPUT_TOKEN
     library_merged_file_name = "merged_{d}.c".format(d=prefix_index)
     library_merged_generalized_file_name = "merged_g_{d}".format(d=prefix_index)
     library_merged_generalized_file_name_extension = library_merged_generalized_file_name+".c"

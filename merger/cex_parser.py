@@ -74,6 +74,7 @@ def twos_comp(val, bits):
     return val
 
 def analyze_result(result, library_name, arg_signature):
+    global INDEP_INPUT_TOKEN
     all_argmap = {}
     unwinding_assertion_result = True
     failed_assertion = None
@@ -104,6 +105,11 @@ def analyze_result(result, library_name, arg_signature):
                 if case_match:
                     args = case_match.group(1).split(',')
                     print ("Counter example:")
+                    if len(arg_signature) == 0:
+                        argmap = {}
+                        all_argmap[library_name] = argmap
+                        print("input independent counter-example")
+                        break;
                     if len(args) == len(arg_signature):
                         argmap = {}
                         for i in range(len(args)):
