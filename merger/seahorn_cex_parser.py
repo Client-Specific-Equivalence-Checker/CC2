@@ -53,11 +53,13 @@ def extract_cex(cexfileName, lib_args, lib_name):
                 all_args = lib_args
             else:
                 print ("Error")
-        elif len(lib_args) == 1 and cex_line.rstrip('\n').endswith(zero_init):
+        elif cex_line.rstrip('\n').endswith(zero_init):
             argmap = {}
             all_argmap[lib_name] = argmap
-            argmap[lib_args[0]] ='0'
-            print("counterexamples: %s  = %d" % (lib_args[0], 0))
+            arg_num = len(lib_args)
+            for i in range(arg_num):
+                argmap[lib_args[i]] ='0'
+                print("counterexamples: %s  = %d" % (lib_args[i], 0))
             all_args = lib_args
         else:
             print("Error")
