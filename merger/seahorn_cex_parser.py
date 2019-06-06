@@ -52,7 +52,16 @@ def extract_cex(cexfileName, lib_args, lib_name):
                     print ("counterexamples: %s  = %s" % (lib_args[i],cexs[arg_num-i-1].split()[-1] ) )
                 all_args = lib_args
             else:
-                print ("Error")
+                argmap = {}
+                all_argmap[lib_name] = argmap
+                arg_num = len(cexs)
+                for i in range(arg_num):
+                    argmap[lib_args[i]] = cexs[arg_num - i - 1].split()[-1]
+                    print("counterexamples: %s  = %s" % (lib_args[i], cexs[arg_num - i - 1].split()[-1]))
+                for i in range(arg_num, len(lib_args)):
+                    argmap[lib_args[i]] = '0'
+                    print("counterexamples: %s  = %d" % (lib_args[i], 0))
+                all_args = lib_args
         elif cex_line.rstrip('\n').endswith(zero_init):
             argmap = {}
             all_argmap[lib_name] = argmap
