@@ -2,25 +2,51 @@ import sys
 import argparse
 import shlex, subprocess
 import re
-from pycparser import c_ast
+from pycparser import parse_file, c_generator, c_ast, c_parser
 
-from pysmt.smtlib.parser import SmtLibParser
-from pysmt.smtlib.script import SmtLibScript
-import pysmt.smtlib.commands as smtcmd
 
 seahorn_install = "/home/fengnick/seahorn/seahorn/build/run/bin/sea"
-sea_horn_verify_header = "  extern void __VERIFIER_assume (int);\n" \
-                         "  extern void __VERIFIER_error ();\n" \
-                         "  __attribute__((__noreturn__)) extern void __VERIFIER_error (void);\n " \
-                         "  #define assert(X) if(!(X)){__VERIFIER_error ();}\n " \
-                         "  #define assume __VERIFIER_assume\n"
+sea_horn_verify_header = "extern void __VERIFIER_assume (int);\n" \
+                         "extern void __VERIFIER_error ();\n" \
+                         "__attribute__((__noreturn__)) extern void __VERIFIER_error (void);\n " \
+                         "#define assert(X) if(!(X)){__VERIFIER_error ();}\n " \
+                         "#define assume __VERIFIER_assume\n" \
+                         "extern int nd();\n"
 
 seahorn_cex_prefix = "@0 = private constant"
 zero_init = "zeroinitializer"
 
+
+class InputInitVisitor(c_ast.NodeVisitor):
+    def __init__(self):
+        self.parent_child = {}
+        self.tobeChanged=[]
+
+
+
+    def visit_Decl(self,node):
+        if isinstance(node, c_ast.Decl) and not isinstance(node, c_ast.FuncDecl):
+            node.init = c_ast.FuncCall(name=c_ast.ID(name='nd'), args=c_ast.ExprList(exprs=[]))
+
+
+
 def prepend_file(filename, prepend_text):
-    with open(filename, 'r') as file:
-        content = prepend_text + file.read()
+    parsed_file = parse_file(filename, use_cpp=True,
+                         cpp_path='gcc',
+                         cpp_args=['-E', r'-Iutils/fake_libc_include'])
+    main_func = None
+    for fundef in parsed_file.ext:
+        if isinstance(fundef, c_ast.FuncDef):
+            if fundef.decl.name == "main":
+                main_func = fundef
+                break;
+
+    if main_func is not None:
+        IIV = InputInitVisitor()
+        IIV.visit(main_func.body)
+
+    generator = c_generator.CGenerator()
+    content = prepend_text + generator.visit(parsed_file)
     outfile = filename.rstrip(".c") + "_sea.c"
     with open(outfile, 'w') as of:
         of.write(content)
@@ -56,8 +82,8 @@ def extract_cex(cexfileName, lib_args, lib_name):
                 all_argmap[lib_name] = argmap
                 arg_num = len(cexs)
                 for i in range(arg_num):
-                    argmap[lib_args[i]] = cexs[arg_num - i - 1].split()[-1]
-                    print("counterexamples: %s  = %s" % (lib_args[i], cexs[arg_num - i - 1].split()[-1]))
+                    argmap[lib_args[i]] = cexs[arg_num-i-1].split()[-1]
+                    print("counterexamples: %s  = %s" % (lib_args[i], cexs[arg_num-i-1].split()[-1]))
                 for i in range(arg_num, len(lib_args)):
                     argmap[lib_args[i]] = '0'
                     print("counterexamples: %s  = %d" % (lib_args[i], 0))

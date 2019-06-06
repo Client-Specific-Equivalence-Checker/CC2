@@ -599,6 +599,9 @@ def write_out_generalizible_lib(merged_file, filename, should_copy = True, preco
                     old_nodes.append(node)
                 elif re.match('CLEVER_ret_\d_new',node.name):
                     new_nodes.append(node)
+                elif node.init is None:
+                    new_nodes.append(node)
+
     if merged_lib.decl.type.args is None:
         merged_lib.decl.type.args = c_ast.ParamList([])
     for old_node in old_nodes:
