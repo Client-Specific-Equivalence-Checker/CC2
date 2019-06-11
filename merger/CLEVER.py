@@ -117,11 +117,12 @@ def create_test_harness(path_old, path_new, client, lib):
     main_func.decl.type.args = c_ast.ParamList(params=[])
     main_func.body.block_items =[]
     calling_list = []
-    for decl in new_client_node.decl.type.args.params:
-        main_func.body.block_items.append(copy.deepcopy(decl))
-        if not decl.name is None:
-            main_func.body.block_items.append(make_klee_symbolic(decl.name, decl.name))
-            calling_list.append(c_ast.ID(name=decl.name))
+    if new_client_node.decl.type.args is not None:
+        for decl in new_client_node.decl.type.args.params:
+            main_func.body.block_items.append(copy.deepcopy(decl))
+            if not decl.name is None:
+                main_func.body.block_items.append(make_klee_symbolic(decl.name, decl.name))
+                calling_list.append(c_ast.ID(name=decl.name))
 
 
     old_client_invo = c_ast.FuncCall(name=c_ast.ID(old_client_node.decl.name), args=c_ast.ExprList(exprs=calling_list))
