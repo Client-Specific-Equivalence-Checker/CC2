@@ -2,9 +2,7 @@ import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast
 import shlex, subprocess
-from merger import parser as p
 import copy
-import re
 import sys
 import time
 sys.setrecursionlimit(3000)
@@ -17,7 +15,7 @@ Klee_Header_String = "extern void klee_make_symbolic(void *addr , unsigned int n
 
 def main():
 
-    timer = p.Timer()
+    timer = Timer()
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--new', type=str, dest='new', default="new.c", help ="new source file" )
@@ -75,7 +73,7 @@ def create_test_harness(path_old, path_new, client, lib):
             cpp_path='gcc',
             cpp_args=['-E', r'-Iutils/fake_libc_include'])
 
-    old_lib_visitor = p.FuncDefVisitor(lib)
+    old_lib_visitor = FuncDefVisitor(lib)
     old_lib_visitor.visit(old_ast)
     old_lib_node = old_lib_visitor.container
     assert not old_lib_node is None, "old lib does not exist"
@@ -83,7 +81,7 @@ def create_test_harness(path_old, path_new, client, lib):
         old_lib_node.decl.name += "_old"
         old_lib_node.decl.type.type.declname += "_old"
 
-    old_client_visitor = p.FuncDefVisitor(client)
+    old_client_visitor = FuncDefVisitor(client)
     old_client_visitor.visit(old_ast)
     old_client_node = old_client_visitor.container
     assert not old_client_node is None, "old lib client not exist"
@@ -91,7 +89,7 @@ def create_test_harness(path_old, path_new, client, lib):
         old_client_node.decl.name += "_old"
         old_client_node.decl.type.type.declname += "_old"
 
-    new_lib_visitor = p.FuncDefVisitor(lib)
+    new_lib_visitor = FuncDefVisitor(lib)
     new_lib_visitor.visit(new_ast)
     new_lib_node = new_lib_visitor.container
     assert not new_lib_node is None, "new lib does not exist"
@@ -99,7 +97,7 @@ def create_test_harness(path_old, path_new, client, lib):
         new_lib_node.decl.name += "_new"
         new_lib_node.decl.type.type.declname += "_new"
 
-    new_client_visitor = p.FuncDefVisitor(client)
+    new_client_visitor = FuncDefVisitor(client)
     new_client_visitor.visit(new_ast)
     new_client_node = new_client_visitor.container
     assert not new_client_node is None, "new client does not exist"
@@ -116,13 +114,14 @@ def create_test_harness(path_old, path_new, client, lib):
     main_func = copy.deepcopy(old_client_node)
     main_func.decl.name = "CLEVER_main"
     main_func.decl.type.type.declname ="CLEVER_main"
-    main_func.decl.type.args.params=[]
+    main_func.decl.type.args = c_ast.ParamList(params=[])
     main_func.body.block_items =[]
     calling_list = []
     for decl in new_client_node.decl.type.args.params:
         main_func.body.block_items.append(copy.deepcopy(decl))
-        main_func.body.block_items.append(make_klee_symbolic(decl.name, decl.name))
-        calling_list.append(c_ast.ID(name=decl.name))
+        if not decl.name is None:
+            main_func.body.block_items.append(make_klee_symbolic(decl.name, decl.name))
+            calling_list.append(c_ast.ID(name=decl.name))
 
 
     old_client_invo = c_ast.FuncCall(name=c_ast.ID(old_client_node.decl.name), args=c_ast.ExprList(exprs=calling_list))
@@ -167,6 +166,33 @@ def make_klee_symbolic(variable_name, trackingName):
     arg3 = c_ast.Constant(type='string', value='\"'+ trackingName +'\"')
     return c_ast.FuncCall(name=c_ast.ID(name = "klee_make_symbolic"), args=c_ast.ExprList(exprs=[arg1,arg2,arg3]))
 
+class FuncDefVisitor(c_ast.NodeVisitor):
+    def __init__(self, target):
+        self.target = target
+        self.container = None
+
+    def visit_FuncDef(self, node):
+        if (self.container is None and node.decl.name == self.target):
+            self.container = node
+            return
+
+class Timer(object):
+    def __init__(self):
+        self.interval_time = 0.0
+        self.start_timer = 0.0
+
+    def start(self):
+        self.start_timer = time.time()
+
+    def end(self):
+        self.interval_time += time.time() - self.start_timer
+        self.start_timer = 0.0
+
+    def get_time(self):
+        return self.interval_time
+
 
 if __name__ == "__main__":
         main()
+
+
