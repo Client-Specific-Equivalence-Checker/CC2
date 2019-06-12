@@ -160,17 +160,22 @@ class PEVisitedPair(object):
     def __init__(self, pe_result, arg_lists):
         self.visited_path_constraints = set()
         pe_set = pe_result.split("Partition:")
+        encountered = False
         for pe in pe_set:
             if len(pe) > 0:
                 pe_list = pe.split('\n')
                 partitions = pe_list[0].split('&')
                 pre_parition = []
                 for part in partitions:
-                    if  part != ' )  ':
+                    if part.startswith("A lovely CEX"):
+                        encountered = True
+                    elif  part != ' )  ':
                         pre_parition.append(part)
+                        
+                if(len(pre_parition) > 0):
+                    self.visited_path_constraints.add("( " + ' & '.join(pre_parition) + " )")
 
-                self.visited_path_constraints.add("( " + ' & '.join(pre_parition) + " )")
-                if pe_list[-1].startswith("A lovely CEX") or pe_list[-2].startswith("A lovely CEX"):
+                if encountered:
                     break;
 
     def get_visited_partition(self):
