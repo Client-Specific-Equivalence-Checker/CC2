@@ -177,7 +177,7 @@ def main():
                 print ("Find counter example")
                 total_timer.end()
                 print("Total Checking Time: {time}".format(time=total_timer.get_time()))
-                exit(1)
+                exit(0)
             else:
                 results = results.get()
                 for i in range(len(client_seq)):
@@ -187,7 +187,7 @@ def main():
                         print("Solver decision Time: {time}".format(time=total_solving_time))
                         total_timer.end()
                         print("Total Checking Time: {time}".format(time=total_timer.get_time()))
-                        exit(1)
+                        exit(0)
         #seq MLC checking
         else:
             for i in range(len(client_seq)):
@@ -198,7 +198,7 @@ def main():
                     print("Solver decision Time: {time}".format(time=total_solving_time))
                     total_timer.end()
                     print("Total Checking Time: {time}".format(time=total_timer.get_time()))
-                    exit(1)
+                    exit(0)
         print("All lib call-sites have been checked, CSE")
         if len(MSCs) == 0:
             print ("MSC is the library")
