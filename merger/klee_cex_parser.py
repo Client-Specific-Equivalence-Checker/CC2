@@ -171,7 +171,7 @@ class PEVisitedPair(object):
                         encountered = True
                     elif  part != ' )  ':
                         pre_parition.append(part)
-                        
+
                 if(len(pre_parition) > 0):
                     self.visited_path_constraints.add("( " + ' & '.join(pre_parition) + " )")
 

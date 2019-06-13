@@ -69,6 +69,11 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
 
             if missing_def in DUV.value_changed:
                 new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
+        #if func is a just a program segment, then also add local variables
+        if isinstance(func, c_ast.Compound):
+            for value_changed in DUV.value_changed:
+                if value_changed not in missing_def:
+                    new_func.body.block_items.append(c_ast.Return(c_ast.ID(value_changed)))
     else:
         new_func = func
 
