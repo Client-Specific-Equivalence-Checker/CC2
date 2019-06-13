@@ -1,5 +1,5 @@
 from pycparser import parse_file, c_generator, c_ast, c_parser
-from merger import parser
+import parser
 import copy
 is_MLCCheker = True
 

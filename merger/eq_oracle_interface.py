@@ -1,5 +1,5 @@
 from pycparser import parse_file, c_generator, c_ast, c_parser
-from merger.CLEVER import LibInvoHunter_Reanme
+from CLEVER import LibInvoHunter_Reanme
 import copy
 
 class ReturnCleanUpVistor(c_ast.NodeVisitor):

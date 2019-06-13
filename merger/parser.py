@@ -1,7 +1,7 @@
 import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast, c_parser
-from merger import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser, eq_oracle_interface
+import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser, eq_oracle_interface
 import copy
 import re
 import sys
