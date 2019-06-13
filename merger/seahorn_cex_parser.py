@@ -16,6 +16,27 @@ sea_horn_verify_header = "extern void __VERIFIER_assume (int);\n" \
 seahorn_cex_prefix = "@0 = private constant"
 zero_init = "zeroinitializer"
 
+nd_entry = "define i32 @nd"
+inbound_text = "getelementptr inbounds"
+
+def extract_entry_head_name(results):
+    index = 0;
+    activated = False
+    id = None
+    while index in range(len(results)):
+        result = results[index]
+        if not activated:
+            if result.startswith(nd_entry):
+                activated = True
+        else:
+            case_match = re.search('getelementptr inbounds \(.*(@\d).*\)', result)
+            if (case_match):
+                id = case_match.group(1)
+                return id
+            elif result == "}":
+                return None
+        index+=1
+    return id
 
 class InputInitVisitor(c_ast.NodeVisitor):
     def __init__(self):
@@ -59,9 +80,15 @@ def extract_cex(cexfileName, lib_args, lib_name):
     with open(cexfileName) as cexfile:
         cexfile_contents= cexfile.readlines()
 
+    id = extract_entry_head_name(cexfile_contents)
+    if id is not None:
+        print(id)
+        cex_prefix = seahorn_cex_prefix.replace("@0", id)
+    else:
+        cex_prefix = seahorn_cex_prefix
     cex_line =""
     for line in cexfile_contents:
-        if line.startswith(seahorn_cex_prefix):
+        if line.startswith(cex_prefix):
             cex_line = line
             break;
 
@@ -74,8 +101,8 @@ def extract_cex(cexfileName, lib_args, lib_name):
                 all_argmap[lib_name] = argmap
                 arg_num = len(lib_args)
                 for i in range(arg_num):
-                    argmap[lib_args[i]] = cexs[arg_num-i-1].split()[-1]
-                    print ("counterexamples: %s  = %s" % (lib_args[i],cexs[arg_num-i-1].split()[-1] ) )
+                    argmap[lib_args[i]] = cexs[i].split()[-1]
+                    print ("counterexamples: %s  = %s" % (lib_args[i],cexs[i].split()[-1] ) )
                 all_args = lib_args
             else:
                 argmap = {}

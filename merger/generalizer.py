@@ -314,7 +314,10 @@ class PEClientPair(object):
         return ['&'.join(result)]
 
     def get_post_assertion_list(self):
-        return self.post_path_constraints
+        if len(self.post_path_constraints) == 0:
+            return ["true"]
+        else:
+            return self.post_path_constraints
 
 
 
