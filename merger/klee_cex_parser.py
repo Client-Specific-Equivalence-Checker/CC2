@@ -92,6 +92,8 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
                 head_exp = assertion_exp[0]
                 for i in range(1, len(assertion_exp)):
                     head_exp = c_ast.BinaryOp(op='&',left=head_exp, right=assertion_exp[i])
+            else:
+                return {}, [], PEVisitedPair("", lib_args), True
 
             final_exp = c_ast.ExprList(exprs=[c_ast.UnaryOp(op='!', expr= head_exp)])
             lib_file.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="klee_assume"),
