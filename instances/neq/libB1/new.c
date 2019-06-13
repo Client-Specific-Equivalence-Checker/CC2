@@ -1,10 +1,9 @@
 int clientmain(int x, int n_copy1)
 {
   int ret = 0;
-  if ((x >= 13) && (x < 16))
+  if ((x >= 9) && (x < 12))
     ret = lib(x);
 
-  ret;
   int i_copy1 = 0;
   int sum_copy1 = 0;
   while (i_copy1 <= n_copy1)

@@ -306,8 +306,10 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
         if isinstance(node, c_ast.FuncCall):
             if isinstance(node.name, c_ast.ID):
                 if node.name.name == self.lib_name:
-                    l_object, _ = self.create_ClientContextNode(node, node, None, node, None)
-                    self.node_dict[node] = l_object
+                    l_object = self.node_dict.get(node, None)
+                    if l_object is None:
+                        l_object, _ = self.create_ClientContextNode(node, node, None, node, None)
+                        self.node_dict[node] = l_object
                     self.leaves.append(l_object)
                     leaf = set([l_object])
                     c_node = node
@@ -457,8 +459,11 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
             if LibCV.use_lib:
                 for lib in LibCV.lib_node:
                     l_object = self.node_dict.get(lib, None)
-                    if l_object is not None:
-                        new_leaf.add(l_object)
+                    if l_object is  None:
+                        l_object, _ = self.create_ClientContextNode(lib, lib, None, lib, None)
+                        self.node_dict[node] = l_object
+                    new_leaf.add(l_object)
+
                 if (start == -1):
                     start = index
                 if (end < index):
