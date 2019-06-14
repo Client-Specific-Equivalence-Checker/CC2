@@ -9,7 +9,7 @@ import pysmt.smtlib.commands as smtcmd
 
 bound_map = {}
 default_init = None
-timeout_value = 60
+timeout_value = 30
 
 def get_default_init(max):
     global  default_init
