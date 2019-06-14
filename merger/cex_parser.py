@@ -2,13 +2,14 @@ import sys
 import argparse
 import shlex, subprocess
 import re
-
+import io
 from pysmt.smtlib.parser import SmtLibParser
 from pysmt.smtlib.script import SmtLibScript
 import pysmt.smtlib.commands as smtcmd
 
 bound_map = {}
 default_init = None
+timeout_value = 60
 
 def get_default_init(max):
     global  default_init
@@ -143,7 +144,16 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                 if timer is not None:
                     timer.start()
                 proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                result = proc.stdout.readlines()
+                try:
+                    out, _ = proc.communicate(timeout=timeout_value)
+                except subprocess.TimeoutExpired:
+                    print("CBMCTO")
+                    proc.kill()
+                    if timer is not None:
+                        timer.end()
+                    return {}, [], False
+
+                result = io.BytesIO(out)
                 if timer is not None:
                     timer.end()
                 assertion_passed, unwinding_passed, all_argmap = analyze_result(result, library, lib_args)
