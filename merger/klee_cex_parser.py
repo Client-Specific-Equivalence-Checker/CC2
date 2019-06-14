@@ -4,6 +4,8 @@ import shlex, subprocess
 import re
 from pycparser import c_ast, parse_file, c_generator
 
+timeout_value = 60
+
 def prepend_file(filename, prepend_text):
     with open(filename, 'r') as file:
         content = prepend_text + file.read()
@@ -120,7 +122,12 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
             args = shlex.split(
                 "klee  -optimize  -max-depth=%d -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (unwind, library, output_file_name.rstrip('c') + "bc"))
             timer.start()
-            result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+            try:
+                result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout_value)
+            except:
+                print("KLEETO")
+                timer.end()
+                return {}, lib_args, False
             timer.end()
             output = result.stdout
             pe_info = result.stderr

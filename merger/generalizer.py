@@ -258,6 +258,7 @@ class PEClientPair(object):
         self.post_path_constraints = []
         self.delta_set=()
         self.is_inlined = is_inlined
+        self.empty = True
         for i in range(num_ret):
             self.base_assumptions.add(("CLEVER_ret_{d}_old".format(d=i), "CLEVER_ret_{d}_new".format(d=i)))
         pe_set = pe_result.split("Partition:")
@@ -273,11 +274,15 @@ class PEClientPair(object):
                 effect_dict ={}
                 for k in range(len(pe_list)):
                     clean = pe_list[k][7:]
+                    if (self.empty and "Effect:" in pe_list[k]):
+                        self.empty = False
                     match_old = re.search(' (CLEVER_ret_\d_old)\s*=\s*(.*)', clean)
                     match_new = re.search(' (CLEVER_ret_\d_new)\s*=\s*(.*)', clean)
                     if match_old:
+                        self.empty = False
                         effect_dict[match_old.group(1)] = match_old.group(2).replace("delta_", "")
                     elif match_new:
+                        self.empty = False
                         effect_dict[match_new.group(1)] = match_new.group(2).replace("delta_", "")
 
 
@@ -314,7 +319,7 @@ class PEClientPair(object):
         return ['&'.join(result)]
 
     def get_post_assertion_list(self):
-        if len(self.post_path_constraints) == 0:
+        if len(self.post_path_constraints) == 0 and self.empty:
             return ["true"]
         else:
             return self.post_path_constraints
