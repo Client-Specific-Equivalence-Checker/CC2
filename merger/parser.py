@@ -20,6 +20,7 @@ renamed = set()
 declared = set()
 value_copied =set()
 Return_bindings = {}
+timeout_binding = {}
 r_max_depth = 3000
 SEAHORN = "SEAHORN"
 KLEE = "KLEE"
@@ -88,7 +89,11 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
              merged_lib = None, post_assertion_set = set(), pre_assumption_set = set()):
     global SEAHORN
     global  KLEE
-
+    global timeout_binding
+    key = file_name+library_name + "(" + ','.join(library_arg) + ")"
+    timeout = timeout_binding.get(key, False)
+    if (timeout):
+        engine = SEAHORN
     while (True):
         if (engine == SEAHORN):
             complete = True
@@ -109,6 +114,7 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
         if (not hybrid_sovling or complete):
             return arg_map, arg_list
         else:
+            timeout_binding[key] = True
             if (engine==KLEE and merged_lib is not None and should_refine):
                 refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
             engine = SEAHORN
