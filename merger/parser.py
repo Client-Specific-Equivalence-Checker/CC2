@@ -24,6 +24,9 @@ timeout_binding = {}
 r_max_depth = 3000
 SEAHORN = "SEAHORN"
 KLEE = "KLEE"
+CBMC = "CBMC"
+MIN_UNWIND = 5
+VERIFER_OREDER = [KLEE, CBMC, SEAHORN]
 
 def str_to_boolean(input):
     return input is not None and  input.lower() in ["yes", "true", "y", "ok"]
@@ -94,6 +97,16 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
     timeout = timeout_binding.get(key, False)
     if (timeout):
         engine = SEAHORN
+
+    #If enabled for hybrid solving, a quick CEX detection with KLEE
+    if hybrid_sovling:
+        arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
+                                                                           library=library_name, unwind=MIN_UNWIND,
+                                                                           timer=timer, max_recusive_depth=r_max_depth)
+        if complete:
+            return arg_map, arg_list
+
+
     while (True):
         if (engine == SEAHORN):
             complete = True
