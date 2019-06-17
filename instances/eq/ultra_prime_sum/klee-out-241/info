@@ -1,0 +1,4 @@
+klee -optimize -max-depth=10 -write-no-tests -exit-on-error-type=Abort -entry-point=lib klee_merged_0.bc
+PID: 5162
+Using monotonic steady clock with 1/1000000000s resolution
+Started: 2019-06-14 20:31:33

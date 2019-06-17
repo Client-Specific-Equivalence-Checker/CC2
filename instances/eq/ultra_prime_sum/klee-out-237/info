@@ -1,0 +1,22 @@
+klee -optimize -max-depth=10 -write-no-tests -exit-on-error-type=Abort -entry-point=lib klee_merged_0.bc
+PID: 5102
+Using monotonic steady clock with 1/1000000000s resolution
+Started: 2019-06-14 20:31:32
+BEGIN searcher description
+<InterleavedSearcher> containing 2 searchers:
+RandomPathSearcher
+WeightedRandomSearcher::CoveringNew
+</InterleavedSearcher>
+END searcher description
+Finished: 2019-06-14 20:31:33
+Elapsed: 00:00:01
+KLEE: done: explored paths = 15
+KLEE: done: avg. constructs per query = 27
+KLEE: done: total queries = 30
+KLEE: done: valid queries = 15
+KLEE: done: invalid queries = 15
+KLEE: done: query cex = 30
+
+KLEE: done: total instructions = 525
+KLEE: done: completed paths = 15
+KLEE: done: generated tests = 0

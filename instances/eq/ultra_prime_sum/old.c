@@ -7,9 +7,8 @@ int client(int n){
         }
         i++;
     }
-    return sum;
+    return (lib(sum) == 0);
 }
-
 int lib(int a){
     int i = 2;
     int count = 0;
