@@ -72,13 +72,16 @@ def clear_global():
     value_copied = set()
     return
 
-def get_args_from_lib_file(node):
+def get_args_from_lib_file(node, lib_name="lib"):
     signature_list = []
     lib_node = node.ext[1]
-    for arg in lib_node.decl.type.args.params:
-        if isinstance(arg, c_ast.Decl):
-            signature_list.append(arg.name)
-    return signature_list
+    for i in range(1, len(node.ext)):
+        lib_node = node.ext[i]
+        if isinstance(lib_node, c_ast.FuncDef) and lib_node.decl.name == lib_name:
+            for arg in lib_node.decl.type.args.params:
+                if isinstance(arg, c_ast.Decl):
+                    signature_list.append(arg.name)
+            return signature_list
 
 
 def parse_name_from_decl_list(nodes):
@@ -1612,6 +1615,15 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     #check both lib have the same signature
     assert str(new_lib_node.decl.type) == str(old_lib_node.decl.type) , "lib functions signature mismatch"
 
+    uitlity_class = []
+    for ult in new_ast.ext:
+        if isinstance(ult, c_ast.FuncDef):
+            if not (ult.decl.name == lib or ult.decl.name == client or ult.decl.name == "main"):
+                uitlity_class.append(copy.deepcopy(ult))
+        else:
+            uitlity_class.append(copy.deepcopy(ult))
+
+
     #convert returns into assignment
     r_types = get_type(old_lib_node)
     r_type = r_types[0]
@@ -1648,7 +1660,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
             main_function.body.block_items.append(copy.deepcopy(item))
             arg_list.append(c_ast.ID(name = item.name))
         main_function.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name =lib), args=c_ast.ExprList(exprs = arg_list)))
-        m_file = c_ast.FileAST(ext=[main_function, merged_lib])
+        m_file = c_ast.FileAST(ext=(uitlity_class + [main_function, merged_lib]))
 
     #print(generator.visit(merged_lib))
 
@@ -1675,7 +1687,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
             print("client " + str(client_index + 1))
             print(generator.visit(node_object.node))
             if (node_object is not None and node_object.node != node_object.lib_node):
-                node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy)
+                node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy, ult =uitlity_class)
                 #print(generator.visit(node_object.lib_node))
             #print ()
             node_object = node_object.parent
@@ -1687,7 +1699,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     #print(generator.visit(merged_client))
     return m_file, changed_clients, merged_client, old_lib_copy, new_lib_copy, m_file, client_name
 
-def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
+def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new, ult=[]):
     lib_old = copy.deepcopy(og_lib_old)
     lib_new = copy.deepcopy(og_lib_new)
     lib_old.decl.name += '_old'
@@ -1722,7 +1734,7 @@ def version_merge_lib(lib_node, lib, og_lib_old, og_lib_new):
             main_function.body.block_items.append(copy.deepcopy(item))
             arg_list.append(c_ast.ID(name=item.name))
     main_function.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name= merged_lib.decl.name), args=c_ast.ExprList(exprs=arg_list)))
-    m_file = c_ast.FileAST(ext=[main_function, merged_lib, lib_old, lib_new])
+    m_file = c_ast.FileAST(ext=(ult + [main_function, merged_lib, lib_old, lib_new]))
 
     return m_file
 
