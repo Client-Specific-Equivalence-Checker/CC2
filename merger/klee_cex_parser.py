@@ -131,8 +131,8 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
             timer.end()
             output = result.stdout
             pe_info = result.stderr
-            complete = not (pe_info.endswith("Early termination \n"))
-            pe_info = pe_info.rstrip("Early termination \n")
+            complete = not ("Early termination \n" in pe_info)
+            pe_info = pe_info.replace("Early termination \n", "")
             pe = PEVisitedPair(pe_info, lib_args)
             cex_lines = None
             outlines = output.split('\n')
