@@ -277,7 +277,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     else:
         merged_lib = rewrite_lib_file(base_lib_file, outfile= library_merged_file_name)
 
-    arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib), args.lib, timer,
+    arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib, args.lib), args.lib, timer,
                                  assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                  hybrid_sovling=hybrid_sovling,
                                  merged_lib=merged_lib, post_assertion_set=post_assertion_set,
@@ -317,7 +317,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                     arg_map, arg_list = carg_map, carg_list
                     arg_map[args.lib] = arg_map[args.client]
                 else:
-                    arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib), args.lib,
+                    arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib, args.lib), args.lib,
                                                  timer,
                                                  assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                                  hybrid_sovling=hybrid_sovling,
@@ -342,7 +342,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                 pre_assumption_set.update(ppe.get_preconditions())
             refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set, outfile=library_merged_file_name)
 
-            arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib), args.lib,
+            arg_map, arg_list = check_eq(library_merged_file_name, engine, get_args_from_lib_file(merged_lib, args.lib), args.lib,
                                          timer, assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                          hybrid_sovling=hybrid_sovling,
                                          merged_lib=merged_lib, post_assertion_set=post_assertion_set,
@@ -1619,6 +1619,9 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     for ult in new_ast.ext:
         if isinstance(ult, c_ast.FuncDef):
             if not (ult.decl.name == lib or ult.decl.name == client or ult.decl.name == "main"):
+                uitlity_class.append(copy.deepcopy(ult))
+        elif isinstance(ult, c_ast.Decl):
+            if not (ult.name == client or ult.name == lib):
                 uitlity_class.append(copy.deepcopy(ult))
         else:
             uitlity_class.append(copy.deepcopy(ult))
