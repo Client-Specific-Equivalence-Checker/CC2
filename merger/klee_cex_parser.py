@@ -30,7 +30,7 @@ def twos_comp(val, bits):
     return val
 
 
-def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=None, max_recusive_depth=256):
+def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=None, max_recusive_depth=256, timeout= timeout_value):
     if sourcefile:
         source_file_node = parse_file(sourcefile, use_cpp=True,
                                  cpp_path='gcc',
@@ -123,11 +123,11 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
                 "klee  -optimize  -max-depth=%d -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (unwind, library, output_file_name.rstrip('c') + "bc"))
             timer.start()
             try:
-                result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout_value)
+                result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
             except:
                 print("KLEETO")
                 timer.end()
-                return {}, lib_args, False
+                return {}, lib_args, None, False
             timer.end()
             output = result.stdout
             pe_info = result.stderr

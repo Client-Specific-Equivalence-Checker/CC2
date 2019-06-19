@@ -102,7 +102,7 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
     if hybrid_sovling:
         arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
                                                                            library=library_name, unwind=MIN_UNWIND,
-                                                                           timer=timer, max_recusive_depth=r_max_depth)
+                                                                           timer=timer, max_recusive_depth=r_max_depth, timeout=30)
         if complete:
             return arg_map, arg_list
 
