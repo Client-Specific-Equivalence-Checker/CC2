@@ -1,0 +1,17 @@
+ Editor stuff
+.vscode
+
+# Temp test stuff
+cbmc.c
+
+# Solver stuff
+.z3_trace
+
+#random idea stuff
+.idea
+
+#python buildstuff
+dist/*
+*.egg-info
+build
+

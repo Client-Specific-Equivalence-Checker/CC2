@@ -1,8 +1,10 @@
 import shlex, subprocess
-import re
+import re, os
 from pycparser import parse_file, c_generator, c_ast
 
-template_string = 'CILLY=cilly\nCLANG=clang-6.0\nKLEE=klee\nCOPTS=-Wno-attributes\nINSTKLEE=/home/fengnick/CLEVER+/klee/_build/instKlee.cma\n# if instKlee has been installed, you can also use:\n# INSTKLEE=instKlee\n\nexport CIL_FEATURES=cil.oneret\n\n.PHONY: all clean\n\n{SOURCENAME}:{SOURCENAME}.c\n\t$(CILLY) $(COPTS) --save-temps --noPrintLn -c --load=$(INSTKLEE) --doinstKlee --entry={LIBNAME}  {ASSUMPTIONS} {SOURCENAME}.c\n\nclean:\n\trm -rf *.o *.i *.cil.* klee-*\n'
+MLScript_location = os.path.join(os.path.dirname(__file__), "_build/instKlee.cma")
+template_string = 'CILLY=cilly\nCLANG=clang-6.0\nKLEE=klee\nCOPTS=-Wno-attributes\nINSTKLEE={MLScript}\n# if instKlee has been installed, you can also use:\n# INSTKLEE=instKlee\n\nexport CIL_FEATURES=cil.oneret\n\n.PHONY: all clean\n\n{SOURCENAME}:{SOURCENAME}.c\n\t$(CILLY) $(COPTS) --save-temps --noPrintLn -c --load=$(INSTKLEE) --doinstKlee --entry={LIBNAME}  {ASSUMPTIONS} {SOURCENAME}.c\n\nclean:\n\trm -rf *.o *.i *.cil.* klee-*\n'
+
 
 def generalize(source, libname, cex_args, timer=None, lock=None):
     assumption_list = []
@@ -11,7 +13,7 @@ def generalize(source, libname, cex_args, timer=None, lock=None):
     assumptions = ' & '.join(assumption_list)
     if len(assumptions) >0:
         assumptions="--assume='{ass}'".format(ass=assumptions)
-    makeString = template_string.format(SOURCENAME = source, ASSUMPTIONS=assumptions, LIBNAME=libname)
+    makeString = template_string.format(SOURCENAME = source, ASSUMPTIONS=assumptions, LIBNAME=libname, MLScript = MLScript_location)
     lock_actions(lock)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
@@ -33,7 +35,7 @@ def generalize(source, libname, cex_args, timer=None, lock=None):
     return new_pe
 
 def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name ="lib", timer= None, lock=None):
-    makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
+    makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname, MLScript = MLScript_location)
     lock_actions(lock)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
@@ -74,7 +76,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
 
 def generalize_pre_client(source, clientname, is_inlined = True, num_ret=1, arg_list =[] , lib_name="lib", timer= None, lock=None):
     lock_actions(lock)
-    makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname)
+    makeString = template_string.format(SOURCENAME=source, ASSUMPTIONS='', LIBNAME=clientname, MLScript = MLScript_location)
     with open("Makefile", 'w') as makeFile:
         makeFile.write(makeString)
     subprocess.call("make")
@@ -378,7 +380,7 @@ def unclock_actions(lock):
 
 if __name__ =="__main__":
 
-    print (template_string.format(SOURCENAME = "merged", ASSUMPTIONS="a == 5", LIBNAME="lib"))
+    print (template_string.format(SOURCENAME = "merged", ASSUMPTIONS="a == 5", LIBNAME="lib", MLScript = MLScript_location))
 
     '''
     with open("MakeTemplate", "r") as templateFile:
