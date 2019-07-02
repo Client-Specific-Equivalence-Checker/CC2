@@ -1,6 +1,27 @@
 # CC2
 CLEVER V2
 
+##Installation instruction for Ubuntu
+#Pre-requisite:
+1. Installing Seahorn: https://github.com/seahorn/seahorn/tree/deep-dev-5.0 (possible package decencies are listed in 
+the bottom of page)
+
+2.  Installing Klee:
+- sudo apt-get install build-essential curl libcap-dev git cmake libncurses5-dev python-minimal python-pip unzip libtcmalloc-minimal4 libgoogle-perftools-dev libsqlite3-dev
+- sudo apt-get install clang-6.0 llvm-6.0 llvm-6.0-dev llvm-6.0-tools
+- sudo pip install lit
+- git clone https://github.com/FedericoAureliano/klee
+- cd klee
+- mkdir build
+- cd build
+- cmake -DLLVM_CONFIG_BINARY=/usr/bin/llvm-config-6.0 .. -DENABLE_SOLVER_Z3=ON ..
+- sudo make install
+
+3. Install CBMC 5.11: https://www.cprover.org/cbmc/
+
+Installing CC2:
+
+
 ## Development Guide
 - Create a branch for your development and pull request to merge with master. Merge your pull request once one other developer has approved it.
 
