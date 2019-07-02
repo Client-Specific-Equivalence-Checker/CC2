@@ -1,10 +1,10 @@
 int foo(int a, int b);
 
-int main(void) {
-	return foo(5,900);
+int clientmain() {
+	return foo(9,500);
 }
 
-int foo(int a, int b) {
+int foo (int a, int b) {
 	int c=a+b;
 	return c;
 }

@@ -27,10 +27,13 @@ static const unsigned int primes[8] = {
 }
 
 int client(unsigned int x){
+  int result;
   if (x < 19) {
-    return lib(20, 1);
+    result = lib(20,1);
+  }else{
+  result=lib(x,1);
   }
-  return lib(x,1);
+  return result;
 }
 
 int main() {

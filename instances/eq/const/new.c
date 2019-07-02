@@ -1,8 +1,8 @@
 int foo(int a, int b);
 
 
-int main(void) {
-	return foo(5,900);
+int client(int a, int b) {
+	return foo(a,b);
 }
 
 int foo(int a, int b) {
