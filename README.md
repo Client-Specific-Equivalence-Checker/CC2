@@ -5,7 +5,7 @@ CLEVER V2
 ### Pre-requisite:
 0. Install Python3.5
 
-1. Installing Seahorn: https://github.com/seahorn/seahorn/tree/deep-dev-5.0 (possible package decencies are listed in 
+1. Install Seahorn: https://github.com/seahorn/seahorn/tree/deep-dev-5.0 (possible package decencies are listed in 
 the bottom of page)
 
 2.  Installing Klee:
@@ -39,7 +39,7 @@ make install
 ```
 
 
-### Installing CC2:
+### Install CC2:
 ```
 git clone https://github.com/Client-Specific-Equivalence-Checker/CC2
 cd CC2
@@ -66,25 +66,3 @@ optional argument:
 ```bash
 CLEVER2 --new=instances/eq/ultra_prime_sum/new.c --old=/instances/eq/ultra_prime_sum/old.c --lib=lib --client=client --engine=CBMC --unwind=20 --concurrent=True --hybrid-solving=True 
 ```
-
-## Development Guide
-- Create a branch for your development and pull request to merge with master. Merge your pull request once one other developer has approved it.
-
-## Style Guide
-- Examples live in the ```instances``` folder and are divided into equal (```eq```) and not equal (```neq```) sub-folders.
-- Example are themselves folders living inside of ```eq``` and ```neq```.
-- Name examples with lower case letters and underscores for spacing. Version numbers at the end do not need to be separated by an underscore.
-- Each example should contain four files: ```old.c```, ```new.c```, ```merged.c```, and ```README.md```. These files contain two versions of the test instance, one in ```old.c``` and one in ```new.c```; a manually merged product program of the two versions, in ```merged.c```; and a description of the instance, in ```README.md```. 
-
-## Maintenance TODO
-- [ ] Manually merge 10 programs each
-
-## Interesting TODO
-- How to handle recursion?
-
-## Manual Merge Guide
-- Document any decisions you make here!
-- Name the return of the old and new versions as ```ret1``` and ```ret2``` respectively.
-- Inline into a single function called ```main```
-- When duplicating variables add the suffix ```1``` and ```2``` for old and new version respectively
-- Insert assertions as comments
