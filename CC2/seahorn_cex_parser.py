@@ -5,7 +5,7 @@ import re
 from pycparser import parse_file, c_generator, c_ast, c_parser
 
 
-seahorn_install = "/home/fengnick/seahorn/seahorn/build/run/bin/sea"
+seahorn_install = "sea"
 sea_horn_verify_header = "extern void __VERIFIER_assume (int);\n" \
                          "extern void __VERIFIER_error ();\n" \
                          "__attribute__((__noreturn__)) extern void __VERIFIER_error (void);\n " \

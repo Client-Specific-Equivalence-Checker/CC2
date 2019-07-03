@@ -1,8 +1,8 @@
 # CC2
 CLEVER V2
 
-## Installation instruction for Ubuntu
-### Pre-requisite:
+## Installation Instruction for Ubuntu 16.04
+### Prerequisites:
 0. Install Python3.5
 
 1. Install Seahorn: https://github.com/seahorn/seahorn/tree/deep-dev-5.0 (possible package decencies are listed in 
@@ -38,6 +38,11 @@ make
 make install
 ```
 
+6. Install pycparser: 
+```
+pip install pycparser
+```
+
 
 ### Install CC2:
 ```
@@ -53,7 +58,7 @@ sudo python3 setup.py install
 
 ## Usage:
 ```bash
-CC2 --old={V1_file} --new={V2_file} --lib={library_name} --client={client_name}
+CLEVER2 --old={V1_file} --new={V2_file} --lib={library_name} --client={client_name}
 ```
 optional argument:
 - `--engine`: Choose a verification engine from CBMC, KLEE and SEAHORN (default: CBMC).
