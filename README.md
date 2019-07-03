@@ -1,8 +1,8 @@
 # CC2
 CLEVER V2
 
-##Installation instruction for Ubuntu
-#Pre-requisite:
+## Installation instruction for Ubuntu
+### Pre-requisite:
 0. Install Python3.5
 
 1. Installing Seahorn: https://github.com/seahorn/seahorn/tree/deep-dev-5.0 (possible package decencies are listed in 
@@ -39,7 +39,7 @@ make install
 ```
 
 
-#Installing CC2:
+### Installing CC2:
 ```
 git clone https://github.com/Client-Specific-Equivalence-Checker/CC2
 cd CC2
@@ -51,7 +51,7 @@ sudo python3 setup.py install
 ```
 
 
-##Usage:
+## Usage:
 ```bash
 CC2 --old={V1_file} --new={V2_file} --lib={library_name} --client={client_name}
 ```
@@ -62,7 +62,7 @@ optional argument:
 - `--hybrid-solving`: Use a combination of verification engines(default False).
 - `--concurrent`: Enable concurrent verification(default False).
 
-##Examples:
+## Examples:
 ```bash
 CLEVER2 --new=instances/eq/ultra_prime_sum/new.c --old=/instances/eq/ultra_prime_sum/old.c --lib=lib --client=client --engine=CBMC --unwind=20 --concurrent=True --hybrid-solving=True 
 ```
