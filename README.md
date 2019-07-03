@@ -55,6 +55,11 @@ cd ../..
 sudo python3 setup.py install
 ```
 
+## Installation Instruction for using docker:
+```bash
+docker build -t cc2\cc2 .
+docker run -v `pwd`:/host -it -it cc2/cc2"
+```
 
 ## Usage:
 ```bash
