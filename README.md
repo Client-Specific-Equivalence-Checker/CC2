@@ -63,7 +63,7 @@ docker run -v `pwd`:/host -it cc2/cc2"
 
 ## Usage:
 ```bash
-CLEVER2 --old={V1_file} --new={V2_file} --lib={library_name} --client={client_name}
+CC2 --old={V1_file} --new={V2_file} --lib={library_name} --client={client_name}
 ```
 optional argument:
 - `--engine`: Choose a verification engine from CBMC, KLEE and SEAHORN (default: CBMC).
@@ -74,5 +74,5 @@ optional argument:
 
 ## Examples:
 ```bash
-CLEVER2 --new=instances/eq/ultra_prime_sum/new.c --old=/instances/eq/ultra_prime_sum/old.c --lib=lib --client=client --engine=CBMC --unwind=20 --concurrent=True --hybrid-solving=True 
+CC2 --new=instances/eq/ultra_prime_sum/new.c --old=/instances/eq/ultra_prime_sum/old.c --lib=lib --client=client --engine=CBMC --unwind=20 --concurrent=True --hybrid-solving=True 
 ```
