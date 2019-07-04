@@ -1,7 +1,7 @@
 # CC2
 CLEVER V2
 
-## Installation Instruction for Ubuntu 16.04
+## Installation Instructions for Ubuntu 16.04
 ### Prerequisites:
 0. Install Python3.5
 
@@ -55,7 +55,7 @@ cd ../..
 sudo python3 setup.py install
 ```
 
-## Installation Instruction for Docker:
+## Installation Instructions for Docker:
 ```bash
 docker build --build-arg NO_CACHE=$(date +%s) -t cc2/cc2 .
 docker run -v `pwd`:/host -it cc2/cc2"
