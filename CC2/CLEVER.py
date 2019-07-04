@@ -27,6 +27,7 @@ def main():
     args = parser.parse_args()
     path_old = args.old
     path_new = args.new
+    test_harness = None
     if path.isfile(path_old) and path.isfile(path_new):
         timer.start()
         test_harness, outfile = create_test_harness(path_old, path_new, args.client, args.lib)
@@ -46,6 +47,8 @@ def main():
             print ('\n'.join(cex_lines))
         else:
             print ("CSE")
+
+    print("invalid inputs")
 
     return test_harness
 
