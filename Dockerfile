@@ -1,63 +1,79 @@
 FROM ubuntu:16.04
-RUN apt-get update -y
-RUN apt-get install build-essential curl libcap-dev git cmake libncurses5-dev python-minimal python-pip unzip libtcmalloc-minimal4 libgoogle-perftools-dev libsqlite3-dev -y
-RUN apt-get install clang-6.0 llvm-6.0 llvm-6.0-dev llvm-6.0-tools -y
-RUN git clone https://github.com/Z3Prover/z3
-WORKDIR /z3
-RUN apt-get install python3 -y
-RUN python3 scripts/mk_make.py --python
-WORKDIR /z3/build
-RUN make && make install 
+#for KLEE
+RUN apt-get update -y && \
+    apt-get install build-essential curl libcap-dev git cmake libncurses5-dev python-minimal python-pip unzip libtcmalloc-minimal4 libgoogle-perftools-dev libsqlite3-dev -y && \
+    apt-get install clang-6.0 llvm-6.0 llvm-6.0-dev llvm-6.0-tools -y && \
+    apt-get install python3 -y && \
+    git clone https://github.com/Z3Prover/z3 && \
+    cd /z3 && \
+    python3 scripts/mk_make.py --python && \
+    cd /z3/build  && \
+    make && make install  
+
 WORKDIR /
-RUN git clone https://github.com/FedericoAureliano/klee 
-WORKDIR /klee
-RUN git checkout Nick
-RUN mkdir build
-WORKDIR /klee/build
-RUN pip install lit && apt-get install doxygen zlib1g-dev -y
-RUN cmake -DLLVM_CONFIG_BINARY=/usr/bin/llvm-config-6.0 .. -DENABLE_SOLVER_Z3=ON ..
-RUN make install
+RUN git clone https://github.com/FedericoAureliano/klee  && \
+    cd /klee  && \
+    git checkout Nick  && \
+    mkdir build  && \
+    cd /klee/build  && \
+    pip install lit && apt-get install doxygen zlib1g-dev -y  && \
+    cmake -DLLVM_CONFIG_BINARY=/usr/bin/llvm-config-6.0 .. -DENABLE_SOLVER_Z3=ON ..  && \
+    make install
 WORKDIR /bin
+#For CBMC V11
 ADD https://www.cprover.org/cbmc/download/cbmc-5-11-linux-64.tgz .
 RUN tar xfz cbmc-5-11-linux-64.tgz && rm cbmc-5-11-linux-64.tgz
+#For SeaHORN
 WORKDIR /
-RUN apt install ninja-build lld-6.0 libboost-dev subversion gcc-multilib libgmp-dev libgmpxx4ldbl libgraphviz-dev ncurses-doc -y
-RUN git clone https://github.com/seahorn/seahorn 
-WORKDIR /seahorn
-RUN git checkout deep-dev-5.0 && mkdir build 
-WORKDIR /seahorn/build
-RUN apt-get install libboost-all-dev -y
-RUN cmake -DCMAKE_INSTALL_PREFIX=run -DCMAKE_BUILD_TYPE="Release" -DCMAKE_CXX_COMPILER="clang++-6.0" -DCMAKE_C_COMPILER="clang-6.0" -DSEA_ENABLE_LLD="ON" -GNinja -DCMAKE_EXPORT_COMPILE_COMMANDS=1 ../
-RUN cmake --build .
-RUN cmake --build . --target extra && cmake ..
-RUN cmake --build . --target crab && cmake ..
-RUN cmake --build . --target install
-WORKDIR /
-RUN apt-get install perl ocaml ocaml-findlib opam -y
-RUN opam init 
-RUN opam update 
-RUN opam depext conf-m4.1
-RUN opam install cil -y
-RUN git clone https://github.com/cil-project/cil 
-WORKDIR cil
-RUN ./configure && make && make install
-WORKDIR /
-RUN git clone https://github.com/Client-Specific-Equivalence-Checker/CC2
-WORKDIR /CC2 
-RUN git checkout parallel-solving
-WORKDIR /CC2/deps/mlscript
-RUN make
-WORKDIR /CC2  
-RUN apt-get install python3-pip -y
-RUN pip3 install --upgrade pip 
-RUN pip3 install setuptools 
-RUN pip3 install pycparser 
-RUN python3 setup.py install
+RUN git clone https://github.com/seahorn/seahorn && \
+    cd /seahorn && \
+    git checkout deep-dev-5.0 && mkdir build && \
+    cd /seahorn/build && \
+    mkdir /clang-5.0 && \
+    curl -s http://releases.llvm.org/5.0.0/clang+llvm-5.0.0-linux-x86_64-ubuntu16.04.tar.xz \ 
+    | tar -xJf - -C /clang-5.0 --strip-components=1 && \
+    apt install ninja-build libgmp-dev libgraphviz-dev -y && \
+    apt-get install libboost-all-dev subversion -y && \
+    cmake -DCMAKE_INSTALL_PREFIX=run -DCMAKE_BUILD_TYPE="Release" -GNinja ../ && \
+    cmake --build . && \
+    cmake --build . --target extra && cmake .. && \
+    cmake --build . --target crab && cmake .. && \
+    cmake --build . --target install && \ 
+    cmake --build . --target package && \ 
+    # symlink clang (from base image)
+    ln -s /clang-5.0/bin/clang run/bin/clang && \
+    ln -s /clang-5.0/bin/clang++ run/bin/clang++
+ENV PATH "/seahorn/build/run/bin:$PATH"
 
-WORKDIR /seahorn/build
-ENV PATH="/seahorn/build/run/bin:${PATH}"
+
+
+#CIL
 WORKDIR /
-RUN mkdir testing
+RUN apt-get install perl ocaml ocaml-findlib opam -y && \
+    opam init && \
+    opam update && \
+    opam depext conf-m4.1 && \
+    opam install cil -y && \
+    git clone https://github.com/cil-project/cil && \
+    cd /cil && \
+    ./configure && make && make install && \
+    cd / 
+
+#CC2 direct deps
+RUN apt-get install python3-pip -y && \
+    pip3 install setuptools  && \
+    pip3 install pycparser 
+
+#CC2
+ARG NO_CACHE=1
+RUN git clone https://github.com/Client-Specific-Equivalence-Checker/CC2 && \
+    cd /CC2 && \
+    git checkout parallel-solving && \
+    cd /CC2/deps/mlscript && \
+    make && \
+    cd /CC2  && \
+    python3 setup.py install
+
 #RUN useradd -ms /bin/bash ccuser && echo ccuser:CC | chpasswd 
 WORKDIR /CC2
 USER root
