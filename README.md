@@ -58,7 +58,7 @@ sudo python3 setup.py install
 ## Installation Instructions for Docker:
 ```bash
 docker build --build-arg NO_CACHE=$(date +%s) -t cc2/cc2 .
-docker run -v `pwd`:/host -it cc2/cc2"
+docker run -v `pwd`:/host -it cc2/cc2
 ```
 
 ## Usage:
@@ -69,7 +69,7 @@ optional argument:
 - `--engine`: Choose a verification engine from CBMC, KLEE and SEAHORN (default: CBMC).
 - `--unwind`: The number of loop unwinding for CBMC, and the number of paths to be explored for KLEE (default: 100). 
 - `--BMC-incremental`: Enable BMC to incrementally detect program bound until reaching unwind limit (default True).
-- `--hybrid-solving`: Use a combination of verification engines(default False).
+- `--hybrid-solving`se a combination of verification engines(default False).
 - `--concurrent`: Enable concurrent verification(default False).
 
 ## Examples:
