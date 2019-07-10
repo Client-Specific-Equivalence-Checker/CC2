@@ -58,7 +58,7 @@ sudo python3 setup.py install
 ## Installation Instructions for Docker:
 ```bash
 docker build --build-arg NO_CACHE=$(date +%s) -t cc2/cc2 .
-docker run -v `pwd`:/host -it cc2/cc2"
+docker run -v `pwd`:/host -it cc2/cc2
 ```
 
 ## Usage:
