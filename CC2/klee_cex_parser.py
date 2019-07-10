@@ -117,7 +117,7 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
             args = shlex.split("clang-6.0 -emit-llvm -fbracket-depth=%d -c %s" % (max_recusive_depth, output_file_name))
             subprocess.call(args)
             args = shlex.split(
-                "klee  -optimize  -max-depth=%d -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (unwind, library, output_file_name.rstrip('c') + "bc"))
+                "klee  -optimize  -max-tests=%d -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (unwind, library, output_file_name.rstrip('c') + "bc"))
             timer.start()
             try:
                 result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
