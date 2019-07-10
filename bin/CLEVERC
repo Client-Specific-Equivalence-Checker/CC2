@@ -48,7 +48,8 @@ def main():
         else:
             print ("CSE")
 
-    print("invalid inputs")
+    else:
+        print("invalid inputs")
 
     return test_harness
 
