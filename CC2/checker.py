@@ -25,7 +25,7 @@ r_max_depth = 3000
 SEAHORN = "SEAHORN"
 KLEE = "KLEE"
 CBMC = "CBMC"
-MIN_UNWIND = 5
+MIN_UNWIND = 10
 VERIFER_OREDER = [KLEE, CBMC, SEAHORN]
 
 def str_to_boolean(input):
@@ -105,7 +105,7 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
     if hybrid_sovling:
         arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
                                                                            library=library_name, unwind=MIN_UNWIND,
-                                                                           timer=timer, max_recusive_depth=r_max_depth, timeout=30)
+                                                                           timer=timer, max_recusive_depth=r_max_depth, timeout=min(MIN_UNWIND, 30))
         if complete:
             return arg_map, arg_list
 
@@ -119,10 +119,13 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
             arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
                                                                      library=library_name, unwind=unwind,
                                                                      timer=timer, max_recusive_depth=r_max_depth)
-            visited_assumption = vpe.get_visit_partition_str()
-            should_refine = len(visited_assumption) > 0
-            if should_refine:
-                assumption_set.add(visited_assumption)
+            if (vpe is not None):
+                visited_assumption = vpe.get_visit_partition_str()
+                should_refine = len(visited_assumption) > 0
+                if should_refine:
+                    assumption_set.add(visited_assumption)
+            else:
+                should_refine = False
         else:
             arg_map, arg_list, complete = cex_parser.launch_CBMC_cex(file_name, library_arg, library=library_name,
                                                            unwinds=unwind,
