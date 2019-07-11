@@ -117,14 +117,17 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
             args = shlex.split("clang-6.0 -emit-llvm -fbracket-depth=%d -c %s" % (max_recusive_depth, output_file_name))
             subprocess.call(args)
             args = shlex.split(
-                "klee  -optimize  -max-tests=%d -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (unwind, library, output_file_name.rstrip('c') + "bc"))
+                "klee  -optimize  -max-time=%ds -max-tests=%d -write-no-tests -exit-on-error-type=Abort -entry-point=%s %s" % (timeout, unwind, library, output_file_name.rstrip('c') + "bc"))
             timer.start()
             try:
                 result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
-            except:
+            except subprocess.TimeoutExpired as t:
                 print("KLEETO")
+                pe_info = t.stderr
+                pe_info = pe_info.replace("Early termination \n", "")
+                pe = PEVisitedPair(pe_info, lib_args)
                 timer.end()
-                return {}, lib_args, None, False
+                return {}, lib_args, pe, False
             timer.end()
             output = result.stdout
             pe_info = result.stderr
@@ -165,12 +168,14 @@ def launch_klee_cex(sourcefile, lib_args, library="lib", unwind= 1000, timer=Non
 class PEVisitedPair(object):
     def __init__(self, pe_result, arg_lists):
         self.visited_path_constraints = set()
+        self.max_depth = 0
         pe_set = pe_result.split("Partition:")
         encountered = False
         for pe in pe_set:
             if len(pe) > 0:
                 pe_list = pe.split('\n')
                 partitions = pe_list[0].split('&')
+                self.max_depth = max(self.max_depth, len(partitions))
                 pre_parition = []
                 for part in partitions:
                     if part.startswith("A lovely CEX"):

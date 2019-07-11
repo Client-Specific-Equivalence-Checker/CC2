@@ -108,6 +108,17 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
                                                                            timer=timer, max_recusive_depth=r_max_depth, timeout=min(MIN_UNWIND, 30))
         if complete:
             return arg_map, arg_list
+        else:
+            if vpe is not None:
+                '''
+                visited_assumption = vpe.get_visit_partition_str()
+                should_refine = len(visited_assumption) > 0
+                if should_refine:
+                    assumption_set.add(visited_assumption)
+                    refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
+                '''
+                if vpe.max_depth > unwind + MIN_UNWIND:
+                    engine = SEAHORN
 
 
     while (True):
