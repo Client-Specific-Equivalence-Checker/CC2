@@ -101,6 +101,8 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
     if (timeout):
         engine = SEAHORN
 
+    lower_bound = 0
+
     #If enabled for hybrid solving, a quick CEX detection with KLEE
     if hybrid_sovling:
         arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
@@ -117,8 +119,10 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
                     assumption_set.add(visited_assumption)
                     refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set)
                 '''
-                if vpe.max_depth > unwind + MIN_UNWIND:
+                if vpe.max_depth > unwind:
                     engine = SEAHORN
+                else:
+                    lower_bound = vpe.max_depth
 
 
     while (True):
@@ -140,7 +144,7 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
         else:
             arg_map, arg_list, complete = cex_parser.launch_CBMC_cex(file_name, library_arg, library=library_name,
                                                            unwinds=unwind,
-                                                           incremental_bound_detection=bmc_incremental, timer=timer)
+                                                           incremental_bound_detection=bmc_incremental, timer=timer, lower_bound=lower_bound)
         if (not hybrid_sovling or complete):
             return arg_map, arg_list
         else:

@@ -126,7 +126,7 @@ def analyze_result(result, library_name, arg_signature):
 
 
 def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=100 , outfile='result.txt', library="lib",
-                    incremental_bound_detection = True, timer=None):
+                    incremental_bound_detection = True, timer=None, lower_bound=0):
     complete = True
     if sourcefile:
         if incremental_bound_detection:
@@ -134,7 +134,16 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
             default_init = get_default_init(unwinds)
             key = library+"("+','.join(lib_args)+")"
             init_unwind = bound_map.get(key, default_init)
+            #in case out of dynamic budget
+            if (lower_bound > unwinds):
+                return {}, [], False
+
             while (True):
+                if (init_unwind < lower_bound):
+                    init_unwind = init_unwind * 2
+                    if (init_unwind > unwinds):
+                        init_unwind = unwinds
+                    continue
                 args = shlex.split(
                     "cbmc %s --unwinding-assertions --unwind %d --slice-formula --smt2 --stack-trace --verbosity 5" % (
                     sourcefile, init_unwind))
