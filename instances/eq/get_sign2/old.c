@@ -1,10 +1,12 @@
 int lib(int x) {
+   int result;
   if (x == 0)
-     return 0;
+     result = 0;
   if (x < 0)
-     return -1;
+     result = -1;
   else
-     return 1;
+     result = 1;
+  return result;
 }
 
 int client(int x){

@@ -12,7 +12,14 @@ int main() {
         } else {
             ret1 = x1;
         }
-        ret1 = -ret1/5;
+        int x2 = (-x)*5;
+        if (x2 < 5) {
+            ret2 = 5;
+        } else {
+            ret2 = x2;
+        }
+
+        assert((ret1 / 5) == (ret2 /5));
 	} else {
         int x1 = (x+1)*5;
         if (x1 < 0) {
@@ -20,24 +27,14 @@ int main() {
         } else {
             ret1 = x1;
         }
-        ret1 = ret1/5 - 1;
-	}
-    if (x < 5) {
-        int x1 = (-x)*5;
-        if (x1 < 0) {
-            ret2 = 0;
+        int x2 = (x+1)*5;
+        if (x2 < 5) {
+            ret2 = 5;
         } else {
-            ret2 = x1;
+            ret2 = x2;
         }
-        ret2 = -ret2/5;
-	} else {
-        int x1 = (x+1)*5;
-        if (x1 < 0) {
-            ret2 = 0;
-        } else {
-            ret2 = x1;
-        }
-        ret2 = ret2/5 - 1;
+        
+        //assert(((ret1 / 5) -1) == ((ret2 /5)-1));
 	}
-    //assert(ret1 == ret2);
+    
 }

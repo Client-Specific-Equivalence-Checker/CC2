@@ -6,3 +6,6 @@ cbmc.c
 
 # Solver stuff 
 .z3_trace
+
+#random idea stuff
+.idea
