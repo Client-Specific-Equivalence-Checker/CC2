@@ -113,7 +113,7 @@ def parse_name_from_decl_list(nodes):
     return signature_list
 
 def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set, unwind, bmc_incremental,r_max_depth, hybrid_sovling=False,
-             merged_lib = None, post_assertion_set = set(), pre_assumption_set = set()):
+             merged_lib = None, post_assertion_set = set(), pre_assumption_set = set(), force_seahorn = [False]):
     global SEAHORN
     global  KLEE
     global timeout_binding
@@ -123,6 +123,11 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
         engine = SEAHORN
 
     lower_bound = 0
+
+    if (force_seahorn[0]):
+        hybrid_sovling = False
+        engine = SEAHORN
+        force_seahorn[0] = False
 
     #If enabled for hybrid solving, a quick CEX detection with KLEE
     if hybrid_sovling:
@@ -288,6 +293,7 @@ def unclock_actions(lock):
 def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None, makeLock=None):
     global early_stop
     global INDEP_INPUT_TOKEN
+    force_seahorn = [False]
     library_merged_file_name = "merged_{d}.c".format(d=prefix_index)
     library_merged_generalized_file_name = "merged_g_{d}".format(d=prefix_index)
     library_merged_generalized_file_name_extension = library_merged_generalized_file_name+".c"
@@ -325,7 +331,12 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     while (len(arg_map.keys()) > 0) and not immediate_caller.check_leaves():
         write_out_generalizible_lib(merged_lib, library_merged_generalized_file_name_extension, lib_name=args.lib)
         pe = generalizer.generalize(library_merged_generalized_file_name, args.lib, arg_map[args.lib], timer=timer, lock=makeLock)
+        old_assumption_size = len(assumption_set)
         assumption_set.add(pe.get_parition())
+        # in case we find spurious cex (commonly triggered by KLEE)
+        if (old_assumption_size == len(assumption_set)):
+            force_seahorn[0] = True
+
         restricted_c_file, old_lib_string, new_lib_string, main_func, g_klee_file, pre_cond_file, \
         inlined, num_ret, param_list, client_params = restrict_libraries(merged_lib, pe, immediate_caller.node, merged_outfile =client_merged_file_name)
 
@@ -361,7 +372,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                                                  assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                                  hybrid_sovling=hybrid_sovling,
                                                  merged_lib=merged_lib, post_assertion_set=post_assertion_set,
-                                                 pre_assumption_set=pre_assumption_set)
+                                                 pre_assumption_set=pre_assumption_set, force_seahorn=force_seahorn)
 
 
 
@@ -385,7 +396,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
                                          timer, assumption_set, args.unwind, bmc_incremental, r_max_depth,
                                          hybrid_sovling=hybrid_sovling,
                                          merged_lib=merged_lib, post_assertion_set=post_assertion_set,
-                                         pre_assumption_set=pre_assumption_set)
+                                         pre_assumption_set=pre_assumption_set, force_seahorn=force_seahorn)
 
     # We have proved CSE for a lib call-site, mark all verified callers and move on
     lock_actions(lock)
