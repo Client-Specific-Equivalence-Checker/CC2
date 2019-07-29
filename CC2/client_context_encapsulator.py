@@ -382,7 +382,7 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                                     raw_l_object = l_object
                                     context = c_ast.Compound(
                                         block_items=copy.deepcopy(c_node.block_items[pre_index: post_index]))
-                                    c_object, leaf = self.create_ClientContextNode(context, copy.deepcopy(child_node), None, copy.deepcopy(child_node),
+                                    c_object, leaf = self.create_ClientContextNode(context, copy.deepcopy(context), None, copy.deepcopy(context),
                                                                              raw_l_object, leaf)
                                     self.add_parent_child(c_object, l_object)
                                     l_object = c_object
