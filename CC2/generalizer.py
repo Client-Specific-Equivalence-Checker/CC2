@@ -72,7 +72,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
         with open(source+".cil.c", 'r') as cil_file:
             cil_file_content = cil_file.read()
             cil_file_content = cil_file_content.replace("pesudo_klee_make_symbolic", "garbage",1)
-            cil_file_content = cil_file_content.replace("pesudo_klee_make_symbolic", "klee_make_symbolic").replace(" assert(", " //assert(")
+            cil_file_content = cil_file_content.replace("pesudo_klee_make_symbolic", "klee_make_symbolic").replace(" assert(", " klee_assume(")
 
         with open(source+".cil.c", 'w') as cil_file:
             cil_file.write(cil_file_content)
@@ -86,7 +86,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
         LIV.work()
         generator = c_generator.CGenerator()
         with open(source+".cil.c", 'w') as cil_file:
-            cil_file.write(generator.visit(client_file).replace(" assert(", " //assert(").replace(" //assert(", " assert(", 1))
+            cil_file.write(generator.visit(client_file).replace(" assert(", " klee_assume(").replace(" //assert(", " assert(", 1))
 
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" % source)
     subprocess.call(args)
@@ -306,6 +306,7 @@ class PEClientPair(object):
                 effect_dict ={}
                 for k in range(len(pe_list)):
                     clean = pe_list[k][7:]
+                    #clean = clean.replace("delta_","")
                     if (self.empty and "Effect:" in pe_list[k]):
                         self.empty = False
                     match_old = re.search(' (CLEVER_ret_\d_old)\s*=\s*(.*)', clean)
