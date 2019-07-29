@@ -28,6 +28,25 @@ CBMC = "CBMC"
 MIN_UNWIND = 10
 VERIFER_OREDER = [KLEE, CBMC, SEAHORN]
 
+type_dict={}
+
+def get_variable_type(name):
+    global type_dict
+    type = type_dict.get(name, None)
+    if type is not None:
+        return type
+    elif name.endswith("_old") or name.endswith("_new"):
+        type = type_dict.get(name[:-4], None)
+        if type is not None:
+            return type
+    elif name.endswith("__CLEVER_EXT"):
+        type=type_dict.get(name[:-12], None)
+        if type is not None:
+            return type
+
+    return ['int']
+
+
 def str_to_boolean(input):
     return input is not None and  input.lower() in ["yes", "true", "y", "ok"]
 
@@ -86,6 +105,8 @@ def get_args_from_lib_file(node, lib_name="lib"):
 
 def parse_name_from_decl_list(nodes):
     signature_list =[]
+    if nodes is None:
+        return []
     for arg in nodes:
         if isinstance(arg, c_ast.ID) or isinstance(arg, c_ast.Decl):
             signature_list.append(arg.name)
@@ -418,11 +439,12 @@ def refine_library(m_file, assumptions, post_assertion, pre_assumptions, outfile
     DUV = client_context_encapsulator.DUVisitor()
     DUV.visit(m_file_copy.ext[1])
     for missing_def in DUV.missing_define:
+        type = get_variable_type(missing_def)
         m_file_copy.ext[1].body.block_items.insert(0,
             c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
                        bitsize=None,
                        type=c_ast.TypeDecl(declname=missing_def, quals=[],
-                                           type=c_ast.IdentifierType(['int']))))
+                                           type=c_ast.IdentifierType(type))))
 
 
     generator = c_generator.CGenerator()
@@ -1605,6 +1627,7 @@ def merge_libs(old_lib, new_lib):
     return merged_lib , ret_num
 
 def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
+    global type_dict
     old_ast = parse_file(path_old, use_cpp=True,
             cpp_path='gcc',
             cpp_args=['-E', r'-Iutils/fake_libc_include'])
@@ -1644,6 +1667,9 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
         else:
             uitlity_class.append(copy.deepcopy(ult))
 
+    DTPV = DateTypeVisitor()
+    DTPV.visit(new_lib_node)
+    DTPV.visit(old_lib_node)
 
     #convert returns into assignment
     r_types = get_type(old_lib_node)
@@ -1698,7 +1724,12 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     else:
         client_name = client
 
-    changed_clients = client_context_encapsulator.analyze_client(client_node, lib);
+    DTPV.visit(client_node)
+    client_context_encapsulator.record_type_dict(DTPV.type_dict)
+    generalizer.record_type_dict(DTPV.type_dict)
+    klee_cex_parser.record_type_dict(DTPV.type_dict)
+    changed_clients = client_context_encapsulator.analyze_client(client_node, lib)
+    type_dict=DTPV.type_dict
 
     client_index = 0;
     for i in range ( len(changed_clients)):
@@ -1803,6 +1834,32 @@ def get_type(function_node):
         return copy.deepcopy(fun_type.names)
 
     raise  Exception
+
+
+class DateTypeVisitor(c_ast.NodeVisitor):
+
+    def __init__(self):
+        self.type_dict={}
+
+    def visit_Decl(self, node):
+        if isinstance(node, c_ast.Decl):
+            type = node.type
+            while (type is not None):
+                if isinstance(type, c_ast.FuncDecl):
+                    if type.args is not None:
+                        self.visit(type.args)
+                if isinstance(type, c_ast.IdentifierType):
+                    self.type_dict[node.name] = type.names
+                    break
+                else:
+                    try:
+                        type = type.type
+                    except:
+                        break
+
+
+
+
 
 
 if __name__ == "__main__":

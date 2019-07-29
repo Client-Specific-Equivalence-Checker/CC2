@@ -3,6 +3,24 @@ from pycparser import c_ast, parse_file, c_generator
 
 timeout_value = 60
 
+type_dict={}
+
+def record_type_dict(types):
+    global  type_dict
+    type_dict = types
+
+def get_type(name):
+    global type_dict
+    type = type_dict.get(name, None)
+    if type is not None:
+        return type
+    elif name.endswith("_old") or name.endswith("_new"):
+        type = type_dict.get(name[:-4], None)
+        if type is not None:
+            return type
+
+    return ['int']
+
 def prepend_file(filename, prepend_text):
     with open(filename, 'r') as file:
         content = prepend_text + file.read()
@@ -12,10 +30,11 @@ def prepend_file(filename, prepend_text):
     return outfile
 
 def make_klee_symbolic(variable_name, trackingName):
+    type = get_type(variable_name)
     arg1 = c_ast.UnaryOp(op='&', expr=c_ast.ID(variable_name))
     arg2 = c_ast.UnaryOp(op='sizeof', expr = c_ast.Typename(name=None, quals =[],
                                                             type= c_ast.TypeDecl(declname=None,quals=[],
-                                                                                 type=c_ast.IdentifierType(names=['int']))))
+                                                                                 type=c_ast.IdentifierType(names=type))))
     arg3 = c_ast.Constant(type='string', value='\"'+ trackingName +'\"')
     return c_ast.FuncCall(name=c_ast.ID(name = "klee_make_symbolic"), args=c_ast.ExprList(exprs=[arg1,arg2,arg3]))
 

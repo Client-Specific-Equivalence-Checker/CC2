@@ -3,11 +3,30 @@ from CC2 import checker
 import copy
 is_MLCCheker = True
 
+
+type_dict={}
+
+def record_type_dict(types):
+    global  type_dict
+    type_dict = types
+
+
 def analyze_client(client_node, lib):
     CFV = ClientFUnctionHierarchyVisitor (lib, client_node)
     CFV.visit(client_node)
     return CFV.leaves
 
+def get_type(name):
+    global type_dict
+    type = type_dict.get(name, None)
+    if type is not None:
+        return type
+    elif name.endswith("_old") or name.endswith("_new"):
+        type = type_dict.get(name[:-4], None)
+        if type is not None:
+            return type
+
+    return ['int']
 
 '''
 Given a fragment of C functions, complete the function by adding approipate input variables
@@ -35,7 +54,7 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                     c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
                                bitsize=None,
                                type=c_ast.TypeDecl(declname=missing_def, quals=[],
-                                                   type=c_ast.IdentifierType(['int']))))
+                                                   type=c_ast.IdentifierType(get_type(missing_def)))))
 
                 if missing_def in DUV.value_changed:
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
@@ -94,7 +113,7 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                 c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
                            bitsize=None,
                            type=c_ast.TypeDecl(declname=missing_def, quals=[],
-                                               type=c_ast.IdentifierType(['int']))))
+                                               type=c_ast.IdentifierType(get_type(missing_def)))))
         func_object.node = temp_client_func
 
 
@@ -120,7 +139,7 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                     c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
                                bitsize=None,
                                type=c_ast.TypeDecl(declname=missing_def, quals=[],
-                                                   type=c_ast.IdentifierType(['int']))))
+                                                   type=c_ast.IdentifierType(get_type(missing_def)))))
 
                 if missing_def in DUV.value_changed:
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))
@@ -156,7 +175,7 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
                     c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
                                bitsize=None,
                                type=c_ast.TypeDecl(declname=missing_def, quals=[],
-                                                   type=c_ast.IdentifierType(['int']))))
+                                                   type=c_ast.IdentifierType(get_type(missing_def)))))
 
                 if missing_def in DUV.value_changed:
                     new_func.body.block_items.append(c_ast.Return(c_ast.ID(missing_def)))

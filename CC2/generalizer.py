@@ -1,15 +1,42 @@
 import shlex, subprocess
 import re, os
 from pycparser import parse_file, c_generator, c_ast
+import ctypes
 
 MLScript_location = os.path.join(os.path.dirname(__file__), "_build/instKlee.cma")
 template_string = 'CILLY=cilly\nCLANG=clang-6.0\nKLEE=klee\nCOPTS=-Wno-attributes\nINSTKLEE={MLScript}\n# if instKlee has been installed, you can also use:\n# INSTKLEE=instKlee\n\nexport CIL_FEATURES=cil.oneret\n\n.PHONY: all clean\n\n{SOURCENAME}:{SOURCENAME}.c\n\t$(CILLY) $(COPTS) --save-temps --noPrintLn -c --load=$(INSTKLEE) --doinstKlee --entry={LIBNAME}  {ASSUMPTIONS} {SOURCENAME}.c\n\nclean:\n\trm -rf *.o *.i *.cil.* klee-*\n'
+type_dict={}
 
+def record_type_dict(types):
+    global  type_dict
+    type_dict = types
+
+def get_type(name):
+    global type_dict
+    type = type_dict.get(name, None)
+    if type is not None:
+        return type
+    elif name.endswith("_old") or name.endswith("_new"):
+        type = type_dict.get(name[:-4], None)
+        if type is not None:
+            return type
+
+    return ['int']
+
+def twos_comp(val, bits):
+    """compute the 2's complement of int value val"""
+    if (val & (1 << (bits - 1))) != 0: # if sign bit is set e.g., 8bit: 128-255
+        val = val - (1 << bits)        # compute negative value
+    return val
 
 def generalize(source, libname, cex_args, timer=None, lock=None):
     assumption_list = []
     for arg, cex in cex_args.items():
-        assumption_list.append(' == '.join([arg, repr(cex)]))
+        type = get_type(arg)
+        if type[0] == 'unsigned' and type[1] =='int' and not cex.endswith('u'):
+            assumption_list.append(' == '.join([arg, repr(ctypes.c_uint(int(cex)).value)]))
+        else:
+            assumption_list.append(' == '.join([arg, repr(cex)]))
     assumptions = ' & '.join(assumption_list)
     if len(assumptions) >0:
         assumptions="--assume='{ass}'".format(ass=assumptions)
@@ -246,6 +273,10 @@ class PEClientPrePair(object):
                 if len(effect_list) > 0:
                     pre_parition += effect_list
                     self.pre_path_constraints.add("( " + ' & '.join(pre_parition) + " )")
+
+        #if pre_path constraint is empty by now, then library is unreachable
+        if (len(self.pre_path_constraints) == 0):
+            self.pre_path_constraints.add("false")
 
     def get_preconditions(self):
         return self.pre_path_constraints
