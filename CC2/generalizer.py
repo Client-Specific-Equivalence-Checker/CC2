@@ -86,7 +86,7 @@ def generalize_client(source, clientname, is_inlined = True, num_ret=1, lib_name
         LIV.work()
         generator = c_generator.CGenerator()
         with open(source+".cil.c", 'w') as cil_file:
-            cil_file.write(generator.visit(client_file).replace(" assert(", " klee_assume(").replace(" //assert(", " assert(", 1))
+            cil_file.write(generator.visit(client_file).replace(" assert(", " klee_assume(").replace(" //assert(", " assert(", 1).replace("extern int klee_assume();", "//extern int klee_assume();", 1))
 
     args = shlex.split("clang-6.0 -emit-llvm -c %s.cil.c" % source)
     subprocess.call(args)
