@@ -166,28 +166,27 @@ class LibPreInvoVisitor(c_ast.NodeVisitor):
             self.visit(c)
 
     def visit_FuncCall(self,node):
-        if not (self.old_hit and self.new_hit):
-            if isinstance(node, c_ast.FuncCall):
-                if (node.name.name ==  (self.lib_name + "_old") or node.name.name ==  (self.lib_name + "_new")):
-                    post_fix = node.name.name[4:]
-                    parent = self.parent_child.get(node, None)
-                    if parent is not None and isinstance(parent, c_ast.Assignment):
-                        if node.name.name == (self.lib_name + "_old"):
-                            self.old_hit = True
-                        elif node.name.name == (self.lib_name + "_new"):
-                            self.new_hit = True
-                        grandparent = self.parent_child.get(parent, None)
-                        if grandparent is not None and isinstance(grandparent, c_ast.Compound):
-                            for i in range(len(node.args.exprs)):
-                                input_variable_name = "input_{d}_".format(d=self.arg_list[i].name)+post_fix
-                                input_variable = c_ast.ID(name="input_{d}_".format(d=self.arg_list[i].name)+post_fix)
-                                self.tobeInsertedBefore.append((grandparent, parent, c_ast.Decl(name=input_variable_name, quals=[], storage=[], init=None, funcspec=[],
-                           bitsize=None,
-                           type=c_ast.TypeDecl(declname=input_variable_name, quals=[],
-                                               type=c_ast.IdentifierType(['int'])))))
-                                self.tobeInsertedBefore.append((grandparent, parent, make_klee_symbolic(input_variable_name, input_variable_name)))
-                                self.tobeInsertedBefore.append((grandparent, parent, c_ast.Assignment(op='=',lvalue=input_variable, rvalue= node.args.exprs[i])))
-                                self.invoc.append((grandparent, parent))
+        if isinstance(node, c_ast.FuncCall):
+            if (node.name.name ==  (self.lib_name + "_old") or node.name.name ==  (self.lib_name + "_new")):
+                post_fix = node.name.name[4:]
+                parent = self.parent_child.get(node, None)
+                if parent is not None and isinstance(parent, c_ast.Assignment):
+                    if node.name.name == (self.lib_name + "_old"):
+                        self.old_hit = True
+                    elif node.name.name == (self.lib_name + "_new"):
+                        self.new_hit = True
+                    grandparent = self.parent_child.get(parent, None)
+                    if grandparent is not None and isinstance(grandparent, c_ast.Compound):
+                        for i in range(len(node.args.exprs)):
+                            input_variable_name = "input_{d}_".format(d=self.arg_list[i].name)+post_fix
+                            input_variable = c_ast.ID(name="input_{d}_".format(d=self.arg_list[i].name)+post_fix)
+                            self.tobeInsertedBefore.append((grandparent, parent, c_ast.Decl(name=input_variable_name, quals=[], storage=[], init=None, funcspec=[],
+                       bitsize=None,
+                       type=c_ast.TypeDecl(declname=input_variable_name, quals=[],
+                                           type=c_ast.IdentifierType(['int'])))))
+                            self.tobeInsertedBefore.append((grandparent, parent, make_klee_symbolic(input_variable_name, input_variable_name)))
+                            self.tobeInsertedBefore.append((grandparent, parent, c_ast.Assignment(op='=',lvalue=input_variable, rvalue= node.args.exprs[i])))
+                            self.invoc.append((grandparent, parent))
 
 
     def work(self):

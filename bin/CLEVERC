@@ -40,13 +40,19 @@ def main():
         outlines = output.split('\n')
         timer.end()
         print ("time : %f\n" % timer.get_time())
+        eq = True
         for line in outlines:
+            if "CLEVER NEQ" in line:
+                eq = False
             if line.startswith("CEX "):
                 cex_lines.append(line)
         if len(cex_lines) > 0 :
             print ('\n'.join(cex_lines))
         else:
-            print ("CSE")
+            if eq:
+                print ("CSE")
+            else:
+                print ("input independent NEQ CEX")
 
     else:
         print("invalid inputs")
@@ -143,6 +149,9 @@ def create_test_harness(path_old, path_new, client, lib):
 
 
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name= "klee_assume"), args=c_ast.BinaryOp(op="!=", left=old_client_invo, right=new_client_invo)))
+    main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="printf"),
+                                                     args=c_ast.ExprList(exprs=([c_ast.Constant(type='string',
+                                                                                                value="\" CLEVER NEQ \\n" + "\"")]))))
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="printf"),
                                                      args=c_ast.ExprList(exprs=([c_ast.Constant(type='string', value="\"" + format_string +"\\n" +"\"")] + ID_list))))
     main_func.body.block_items.append(c_ast.FuncCall(name=c_ast.ID(name="abort"),
