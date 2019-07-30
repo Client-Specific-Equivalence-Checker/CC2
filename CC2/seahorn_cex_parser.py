@@ -4,6 +4,8 @@ import shlex, subprocess
 import re
 from pycparser import parse_file, c_generator, c_ast, c_parser
 
+timeout_value = 60
+
 
 seahorn_install = "sea"
 sea_horn_verify_header = "extern void __VERIFIER_assume (int);\n" \
@@ -143,7 +145,7 @@ def twos_comp(val, bits):
 
 
 def launch_seahorn_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output='z3temp.out', outfile='result.txt',
-                    library="lib", timer=None):
+                    library="lib", timer=None, timeout=timeout_value):
     if sourcefile:
         new_file = prepend_file(sourcefile, sea_horn_verify_header)
         temp_filename = sourcefile + "_cex.ll"
@@ -151,8 +153,15 @@ def launch_seahorn_cex(sourcefile, lib_args, infile='tempSMTLIB.smt2', z3output=
             "%s pf %s --cex=%s" % (seahorn_install, new_file, temp_filename))
         if timer is not None:
             timer.start()
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE)
-        result = str(proc.stdout.readlines()[-1])
+        try:
+            process = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                                    timeout=timeout)
+        except subprocess.TimeoutExpired:
+            print("Seahorn timeout")
+            if timer is not None:
+                timer.end()
+            return {}, lib_args
+        result = process.stdout.rstrip().split('\n')[-1]
         if timer is not None:
             timer.end()
 

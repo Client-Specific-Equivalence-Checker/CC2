@@ -126,7 +126,7 @@ def analyze_result(result, library_name, arg_signature):
 
 
 def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output = 'z3temp.out', unwinds=100 , outfile='result.txt', library="lib",
-                    incremental_bound_detection = True, timer=None, lower_bound=0):
+                    incremental_bound_detection = True, timer=None, lower_bound=0, timeout = timeout_value):
     complete = True
     if sourcefile:
         if incremental_bound_detection:
@@ -151,7 +151,7 @@ def launch_CBMC_cex(sourcefile, lib_args, infile = 'tempSMTLIB.smt2' ,z3output =
                     timer.start()
                 proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 try:
-                    out, _ = proc.communicate(timeout=timeout_value)
+                    out, _ = proc.communicate(timeout=timeout)
                 except subprocess.TimeoutExpired:
                     print("CBMCTO")
                     proc.kill()

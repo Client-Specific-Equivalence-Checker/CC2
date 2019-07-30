@@ -113,7 +113,7 @@ def parse_name_from_decl_list(nodes):
     return signature_list
 
 def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set, unwind, bmc_incremental,r_max_depth, hybrid_sovling=False,
-             merged_lib = None, post_assertion_set = set(), pre_assumption_set = set(), force_seahorn = [False]):
+             merged_lib = None, post_assertion_set = set(), pre_assumption_set = set(), force_seahorn = [False], quick_timeout=300):
     global SEAHORN
     global  KLEE
     global timeout_binding
@@ -155,7 +155,7 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
         if (engine == SEAHORN):
             complete = True
             arg_map, arg_list = seahorn_cex_parser.launch_seahorn_cex(file_name, library_arg,
-                                                                      library=library_name, timer=timer)
+                                                                      library=library_name, timer=timer, timeout=quick_timeout)
         elif (engine == KLEE):
             arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
                                                                      library=library_name, unwind=unwind,
@@ -318,7 +318,19 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
     immediate_caller.verify_checked()
     unclock_actions(lock)
     if immediate_caller.arg_lib is not None:
-        merged_lib = rewrite_lib_file(immediate_callee.lib_node ,outfile=library_merged_file_name)
+        merged_lib = rewrite_lib_file(base_lib_file, outfile=library_merged_file_name)
+        arg_map, arg_list = check_eq(library_merged_file_name, "SEAHORN", get_args_from_lib_file(merged_lib, args.lib),
+                                     args.lib, timer,
+                                     assumption_set, args.unwind, bmc_incremental, r_max_depth,
+                                     hybrid_sovling=False,
+                                     merged_lib=merged_lib, post_assertion_set=post_assertion_set,
+                                     pre_assumption_set=pre_assumption_set, quick_timeout=10)
+        if not len(arg_map.keys()) >0:
+            MSCs.append(immediate_caller)
+            return True, timer.get_time()
+
+        else:
+            merged_lib = rewrite_lib_file(immediate_callee.lib_node ,outfile=library_merged_file_name)
     else:
         merged_lib = rewrite_lib_file(base_lib_file, outfile= library_merged_file_name)
 
