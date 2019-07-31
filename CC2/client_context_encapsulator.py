@@ -471,6 +471,7 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
             checking_blocks = []
 
         new_leaf = set()
+        mulitiple_call = False
         for index in range(len(checking_blocks)):
             LibCV.use_lib = False
             block = checking_blocks[index]
@@ -487,9 +488,10 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                     start = index
                 if (end < index):
                     end =index
+                if (len(LibCV.lib_node)> 1):
+                    mulitiple_call = True
 
-
-        if (end > start):
+        if (end > start) or (start == end and mulitiple_call):
             argumented_lib = c_ast.Compound(block_items=checking_blocks[start:end+1])
             argumented_client = copy.deepcopy(node)
             if isinstance(argumented_client, c_ast.If):

@@ -520,7 +520,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
     if (ret_binding is None):
         #klee_assumption_string_new= assumption_exp_new
         for new_key, new_value in pe.get_effect_new().items():
-            assumption_exp_new += "return " + replace_bit_vector(new_value.replace("true","1").replace( (new_key+" ="), '')) + ";\n"
+            assumption_exp_new += "return " + replace_bit_vector(new_value.replace("false", "0").replace("true","1").replace( (new_key+" ="), '')) + ";\n"
             old_key = new_key.rstrip("_new") +"_old"
             old_value = pe.get_effect_old().get(old_key, None)
             if (old_value is not None):
@@ -545,7 +545,7 @@ def restrict_libraries(lib_file, pe, client, old_lib_string=None, new_lib_string
                 ret_name = ret_name.name
             else:
                 ret_name = new_key
-            assumption_exp +=  "\n" + ret_name + " = " + replace_bit_vector(new_value.replace("true", "1").replace((new_key + " ="), '')) + ";"
+            assumption_exp +=  "\n" + ret_name + " = " + replace_bit_vector(new_value.replace("false", "0").replace("true", "1").replace((new_key + " ="), '')) + ";"
             new_else_branch+= "\n" + ret_name + " =  99999;"
             if ret_name not in recorded_var:
                 klee_init_new+= "\npesudo_klee_make_symbolic(& {var}, sizeof(int), \" delta_{var}\");".format(var=ret_name )
