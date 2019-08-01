@@ -123,14 +123,14 @@ def check_eq(file_name, engine, library_arg, library_name, timer, assumption_set
         engine = SEAHORN
 
     lower_bound = 0
+    cex_detection = True
 
     if (force_seahorn[0]):
-        hybrid_sovling = False
-        engine = SEAHORN
+        cex_detection = False
         force_seahorn[0] = False
 
     #If enabled for hybrid solving, a quick CEX detection with KLEE
-    if hybrid_sovling:
+    if hybrid_sovling and cex_detection:
         arg_map, arg_list, vpe, complete = klee_cex_parser.launch_klee_cex(file_name, library_arg,
                                                                            library=library_name, unwind=MIN_UNWIND,
                                                                            timer=timer, max_recusive_depth=r_max_depth, timeout=min(MIN_UNWIND, 30))
