@@ -1,7 +1,7 @@
 import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast, c_parser
-from CC2 import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser
+from CC2 import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser, validator
 import copy
 import re
 import sys
@@ -208,6 +208,7 @@ def main():
     parser.add_argument('--hybrid-solving', type=str, dest='hybrid', default="False",
                         help="Allow dynamic verification technique adjustment")
     parser.add_argument('--concurrent', type=str, dest='concurrent', default="False", help='enable Concurrent MLC checking, default=False')
+    parser.add_argument('--validate-cex', type=str, dest='validate', default="False", help="Check counter-example, default =False")
 
     args = parser.parse_args()
     path_old = args.old
@@ -215,6 +216,7 @@ def main():
     use_eq_checker = len(args.oracle) == 0
     client_context_encapsulator.is_MLCCheker = use_eq_checker
     concurrent_MLC = str_to_boolean(args.concurrent)
+    validate_cex = str_to_boolean(args.validate)
 
 
     if path.isfile(path_old) and path.isfile(path_new):
@@ -234,7 +236,7 @@ def main():
             makeLock = Lock()
             for i in range(len(client_seq)):
                 immediate_callee = client_seq[i]
-                innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i), lock, makeLock])
+                innput_array.append([immediate_callee, base_lib_file, args, client_name, MSCs, str(i), lock, makeLock, validate_cex])
 
             results = pool.starmap_async(CheckMLCs, innput_array)
             while(not results.ready() and not early_stop):
@@ -258,7 +260,7 @@ def main():
         else:
             for i in range(len(client_seq)):
                 immediate_callee = client_seq[i]
-                eq, time = CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index=str(i))
+                eq, time = CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index=str(i), validate_cex=validate_cex)
                 total_solving_time += time
                 if not eq:
                     print("Solver decision Time: {time}".format(time=total_solving_time))
@@ -290,7 +292,7 @@ def unclock_actions(lock):
     if lock is not None :
         lock.release()
 
-def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None, makeLock=None):
+def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_index ="0", lock=None, makeLock=None, validate_cex = False):
     global early_stop
     global INDEP_INPUT_TOKEN
     force_seahorn = [False]
@@ -359,6 +361,27 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
         if (len(carg_map.keys()) > 0):
             print("Find counter example with the current caller, now grow")
             if immediate_caller.parent is None:
+                if validate_cex:
+                    result = validator.validate(args.old, args.new, args.client, args.lib, carg_map[args.client])
+                    if (result == 0):
+                        print("CEX validation result : Success")
+                    elif (result == 1):
+                        print ("CEX validation result: Fail")
+                        # block the current CEX and try again
+                        refine_library(merged_lib, assumption_set, post_assertion_set, pre_assumption_set,
+                                       outfile=library_merged_file_name)
+
+                        arg_map, arg_list = check_eq(library_merged_file_name, engine,
+                                                     get_args_from_lib_file(merged_lib, args.lib), args.lib,
+                                                     timer, assumption_set, args.unwind, bmc_incremental, r_max_depth,
+                                                     hybrid_sovling=hybrid_sovling,
+                                                     merged_lib=merged_lib, post_assertion_set=post_assertion_set,
+                                                     pre_assumption_set=pre_assumption_set, force_seahorn=force_seahorn)
+                        continue
+
+                    elif (result == 2):
+                        print("CEX validation: Unknown")
+                        
                 print("Grow out of context, CEX")
                 early_stop = True
                 return  False, timer.get_time()
