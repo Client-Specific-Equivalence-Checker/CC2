@@ -362,7 +362,7 @@ def CheckMLCs(immediate_callee, base_lib_file, args, client_name, MSCs, prefix_i
             print("Find counter example with the current caller, now grow")
             if immediate_caller.parent is None:
                 if validate_cex:
-                    result = validator.validate(args.old, args.new, args.client, args.lib, carg_map[args.client])
+                    result = validator.validate(args.old, args.new, args.client, args.lib, carg_map[args.client], index = prefix_index)
                     if (result == 0):
                         print("CEX validation result : Success")
                     elif (result == 1):

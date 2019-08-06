@@ -3,10 +3,10 @@ from pycparser import parse_file, c_generator, c_ast, c_parser
 import copy
 import shlex, subprocess
 
-def validate(path_old, path_new, client, lib, cex):
+def validate(path_old, path_new, client, lib, cex, index="0"):
     if path.isfile(path_old) and path.isfile(path_new):
         try:
-            test_harness, outfile = create_test_harness(path_old, path_new, client, lib , cex)
+            test_harness, outfile = create_test_harness(path_old, path_new, client, lib , cex, index = index)
             program_name = outfile.rstrip(".c")
             args = shlex.split("gcc -O2 %s -o %s" % (outfile, program_name))
             subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -22,7 +22,7 @@ def validate(path_old, path_new, client, lib, cex):
         except:
             return 2
 
-def create_test_harness(path_old, path_new, client, lib, cex):
+def create_test_harness(path_old, path_new, client, lib, cex, index):
     old_ast = parse_file(path_old, use_cpp=True,
                          cpp_path='gcc',
                          cpp_args=['-E', r'-Iutils/fake_libc_include'])
@@ -121,7 +121,7 @@ def create_test_harness(path_old, path_new, client, lib, cex):
     generator = c_generator.CGenerator()
 
     output_string = "#include <stdio.h> \n" + generator.visit(harness_File)
-    output_file_name = "validation_unmerged.c"
+    output_file_name = "validation_unmerged_%s.c" % index
     with open(output_file_name, "w") as outfile:
         outfile.write(output_string)
     # print(output_string)
