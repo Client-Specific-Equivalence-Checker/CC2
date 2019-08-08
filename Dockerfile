@@ -62,7 +62,8 @@ RUN apt-get install perl ocaml ocaml-findlib opam -y && \
 #CC2 direct deps
 RUN apt-get install python3-pip -y && \
     pip3 install setuptools  && \
-    pip3 install pycparser 
+    pip3 install pycparser  && \
+    apt-get install time -y
 
 #CC2
 ARG NO_CACHE=1
