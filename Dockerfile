@@ -63,7 +63,9 @@ RUN apt-get install perl ocaml ocaml-findlib opam -y && \
 RUN apt-get install python3-pip -y && \
     pip3 install setuptools  && \
     pip3 install pycparser  && \
-    apt-get install time -y
+
+ARG TIMING=1
+RUN apt-get install time runlim -y
 
 #CC2
 ARG NO_CACHE=1
