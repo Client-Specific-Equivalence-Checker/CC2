@@ -68,7 +68,8 @@ class Timer(object):
 
 def replace_bit_vector(input):
             return input.replace("bvsrem", "%").replace("bvslt", "<").replace("bvult","<").\
-                replace("bvsle", "<=").replace("bvule","<=").replace("bvsgt", ">").replace("bvugt", ">").replace("bvsge", ">=").replace("bvuge",">=")
+                replace("bvsle", "<=").replace("bvule","<=").replace("bvsgt", ">").\
+                replace("bvugt", ">").replace("bvsge", ">=").replace("bvuge",">=").replace("bvudiv", '/').replace("extract0", "")
 
 
 def constant_zero():
