@@ -299,7 +299,8 @@ class IDhunter(c_ast.NodeVisitor):
             self.container.add(node.name)
 
     def visit_FuncCall(self, node):
-        self.visit(node.args)
+        if node.args is not None:
+            self.visit(node.args)
 
 
 class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
@@ -446,6 +447,8 @@ class ClientFUnctionHierarchyVisitor(c_ast.NodeVisitor):
                 hook_installed = True
                 should_remove = True
 
+        if leaf is None:
+            leaf = set()
         result = complete_functions(ClientContextDag(copy.deepcopy(node),node_copy, copy.deepcopy(lib_node), parent, raw_lib_node, arg_lib, leaf =leaf), self.client, self.lib_name, is_MLCCheker=is_MLCCheker)
         if (hook_installed):
             CUV = CleanUpVisitor()
@@ -520,7 +523,8 @@ class LibCallHunter(c_ast.NodeVisitor):
             if node.name.name == self.lib_name:
                 self.use_lib = True
                 self.lib_node.append(node)
-            self.visit(node.args)
+            if node.args is not None:
+                self.visit(node.args)
 
 
 class LooplHunter(c_ast.NodeVisitor):
@@ -592,6 +596,8 @@ class ClientContextDag(object):
             child.verify_checked()
 
     def check_leaves(self):
+        if len(self.leaf) == 0:
+            return False
         for l in self.leaf:
             if not l.eqiv:
                 return False

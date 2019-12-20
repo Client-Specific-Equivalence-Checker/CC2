@@ -62,7 +62,7 @@ int Inhibit_Biased_Climb ()
     return (Climb_Inhibit ? Up_Separation + NOZCROSS : Up_Separation);
 }
 
-bool lib()
+bool Non_Crossing_Biased_Climb()
 {
     int upward_preferred;
     int upward_crossing_situation;
@@ -110,6 +110,7 @@ bool Own_Above_Threat()
 
 int alt_sep_test()
 {
+    initialize();
     bool enabled, tcas_equipped, intent_not_known;
     bool need_upward_RA, need_downward_RA;
     int alt_sep;
@@ -144,29 +145,18 @@ main(argc, argv)
 int argc;
 char *argv[];
 {
-    if(argc < 13)
-    {
-	fprintf(stdout, "Error: Command line arguments are\n");
-	fprintf(stdout, "Cur_Vertical_Sep, High_Confidence, Two_of_Three_Reports_Valid\n");
-	fprintf(stdout, "Own_Tracked_Alt, Own_Tracked_Alt_Rate, Other_Tracked_Alt\n");
-	fprintf(stdout, "Alt_Layer_Value, Up_Separation, Down_Separation\n");
-	fprintf(stdout, "Other_RAC, Other_Capability, Climb_Inhibit\n");
-	exit(1);
-    }
     initialize();
-    Cur_Vertical_Sep = atoi(argv[1]);
-    High_Confidence = atoi(argv[2]);
-    Two_of_Three_Reports_Valid = atoi(argv[3]);
-    Own_Tracked_Alt = atoi(argv[4]);
-    Own_Tracked_Alt_Rate = atoi(argv[5]);
-    Other_Tracked_Alt = atoi(argv[6]);
-    Alt_Layer_Value = atoi(argv[7]);
-    Up_Separation = atoi(argv[8]);
-    Down_Separation = atoi(argv[9]);
-    Other_RAC = atoi(argv[10]);
-    Other_Capability = atoi(argv[11]);
-    Climb_Inhibit = atoi(argv[12]);
+    Cur_Vertical_Sep = nondet_int();
+    High_Confidence = nondet_int();
+    Two_of_Three_Reports_Valid =nondet_int();
+    Own_Tracked_Alt = nondet_int();
+    Own_Tracked_Alt_Rate = nondet_int();
+    Other_Tracked_Alt = nondet_int();
+    Alt_Layer_Value = nondet_int();
+    Up_Separation = nondet_int();
+    Down_Separation = nondet_int();
+    Other_RAC = nondet_int();
+    Other_Capability = nondet_int();
+    Climb_Inhibit = nondet_int();
 
-    fprintf(stdout, "%d\n", alt_sep_test());
-    exit(0);
 }
