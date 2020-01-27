@@ -1,59 +1,102 @@
 int main()
 {
-  int buf_size;
-  int count;
-  int string_length;
-  stbsp_snprintf(buf_size, count, string_length);
+  unsigned number;
+  stbsp_snprintf(number);
 }
 
-int stbsp_snprintf(int buf_size, int count, int string_length)
+int stbsp_snprintf(unsigned number)
 {
-  int length_new;
-  int length_old;
   int CLEVER_ret_0_old = 0;
   int CLEVER_ret_0_new = 0;
-  int length;
+  __CPROVER_assume((number > 0) && (number <= 10));
+  unsigned buf = 256;
+  char buffer[256];
+  unsigned written_old = stbsp_snprintf_old(buf, 256, 22 + number, buffer);
+  unsigned written_new = stbsp_snprintf_new(buf, 256, 22 + number, buffer);
+  written_old += stbsp_snprintf_old(buf - written_old, 256 - written_old, 120, buffer);
+  written_new += stbsp_snprintf_new(buf - written_new, 256 - written_new, 120, buffer);
+  CLEVER_ret_0_old = written_old;
+  CLEVER_ret_0_new = written_new;
+  assert(CLEVER_ret_0_old == CLEVER_ret_0_new);
+}
+
+unsigned int stbsp_snprintf_old(unsigned int buf_size, unsigned int count, unsigned int string_length, char *buf)
+{
+  unsigned int length;
   if ((count == 0) && (!buf_size))
   {
-    length_new = (length_old = (length = string_length));
+    length = string_length;
     __CPROVER_assume(length >= 0);
   }
   else
   {
     if (count == 0)
     {
-      length_old = 0;
+      length = 0;
     }
     else
     {
       if (string_length >= count)
       {
-        length_old = count;
+        buf[count - 1] = 1;
       }
       else
       {
-        length_old = string_length;
+        buf[string_length] = 1;
       }
 
-      __CPROVER_assume((((length_old >= 0) && (length_old <= buf_size)) && (length_old <= count)) && (length_old <= string_length));
-      if (length_old >= count)
+      if (string_length >= count)
       {
-        length_old = length_old - 1;
+        length = count;
+      }
+      else
+      {
+        length = string_length;
       }
 
+      if (length >= count)
+      {
+        length = length - 1;
+      }
+
+      buf[length] = 0;
     }
 
-    length_new = string_length;
-    if (length_new >= count)
-    {
-      length_new = count - 1;
-    }
-
-    __CPROVER_assume(length_new >= 0);
   }
 
-  CLEVER_ret_0_old = length_old;
-  CLEVER_ret_0_new = length_new;
-  assert(CLEVER_ret_0_old == CLEVER_ret_0_new);
+  return length;
+}
+
+unsigned int stbsp_snprintf_new(unsigned int buf_size, unsigned int count, unsigned int string_length, char *buf)
+{
+  unsigned int length;
+  if ((count == 0) && (!buf_size))
+  {
+    length = string_length;
+    __CPROVER_assume(length >= 0);
+  }
+  else
+  {
+    if (string_length >= count)
+    {
+      buf[count - 1] = 1;
+    }
+    else
+    {
+      buf[string_length] = 1;
+    }
+
+    int l;
+    length = string_length;
+    l = (int) string_length;
+    if (l >= count)
+    {
+      l = count - 1;
+    }
+
+    buf[l] = 0;
+  }
+
+  return length;
 }
 

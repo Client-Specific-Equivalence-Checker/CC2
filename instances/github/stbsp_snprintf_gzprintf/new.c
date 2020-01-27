@@ -1,15 +1,18 @@
 int gzprintf(unsigned int buf_size, unsigned int string_length) {
+    __CPROVER_assume(buf_size <= 8192);
+    unsigned int len = 0;
     if (buf_size ==0){
-        return 0;
-    }
-
+        len =  0;
+    }else{
     int size = (int) buf_size;
     char buffer[size];
     buffer[size - 1] = 0;
-    unsigned int len = stbsp_snprintf(buf_size, size, string_length, buffer);
+    len = stbsp_snprintf(buf_size, size, string_length, buffer);
 
     if (len <= 0 || len >= size || buffer[size - 1] != 0)
-        return 0;
+        len = 0;
+
+     }
 
     return len;
 
@@ -29,13 +32,18 @@ int gzprintf(unsigned int buf_size, unsigned int string_length) {
     //compute_length computes the number of character written into the buf
         if (string_length >= count){
             //if the buffer is not large enough, some character is written to the last pos
-            buf[count -1] = 'c';
+            buf[count -1] = 1;
+        }else{
+            buf[string_length] = 1;
         }
+
+        int l;
         length = string_length;
-        if (length >= count){
-            length = count -1;
+        l = (int)string_length;
+        if (l >= count){
+            l = count -1;
         }
-        __CPROVER_assume(length >= 0 );
+        buf[l] = 0;
   }
 
   return length;
