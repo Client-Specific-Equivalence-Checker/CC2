@@ -75,6 +75,9 @@ def replace_bit_vector(input):
 def constant_zero():
     return c_ast.Constant(value='0', type='int')
 
+def constant_one():
+    return c_ast.Constant(value='1', type='int')
+
 def clear_global():
     global impacted
     global  old_touched
@@ -1853,6 +1856,8 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     else:
         client_name = client
 
+    RCSR = RecursiveCallSiteRenamer()
+    RCSR.visit(client_node)
     DTPV.visit(client_node)
     client_context_encapsulator.record_type_dict(DTPV.type_dict)
     generalizer.record_type_dict(DTPV.type_dict)
@@ -1866,6 +1871,8 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
         while (node_object is not None and not node_object.processed):
             node_object.processed = True
             print("client " + str(client_index + 1))
+            RA = RecursionAnalyzer()
+            node_object.node = RA.visit_and_work(node_object.node)
             print(generator.visit(node_object.node))
             if (node_object is not None and node_object.node != node_object.lib_node):
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy, ult =uitlity_class)
@@ -1987,6 +1994,245 @@ class DateTypeVisitor(c_ast.NodeVisitor):
                         break
 
 
+class RecursiveCallSiteRenamer(c_ast.NodeVisitor):
+    rename_prefix = "REC_TOKEN_"
+
+    def __init__(self):
+        self.funcName = ""
+
+    def visit_FuncDef(self, node):
+        if isinstance(node, c_ast.FuncDef):
+            self.funcName = node.decl.name
+            self.generic_visit(node)
+
+    def visit_FuncCall(self, node):
+        if isinstance(node, c_ast.FuncCall):
+            if node.name.name == self.funcName:
+                node.name.name = RecursiveCallSiteRenamer.rename_prefix + node.name.name
+            self.generic_visit(node)
+
+
+class RecursionAnalyzer(c_ast.NodeVisitor):
+    GENERIC_REC_RETURN_NAME = "RECURSIVE_RET_"
+    def __init__(self):
+        self.recusive_collector = RecusiveTokenCollector()
+        self.recursive_func = {}
+        self.assumption_insertion_point = []
+        self.insertion_point = []
+        self.parent_child = {}
+
+    def visit_and_work(self,node):
+        self.__init__()
+        self.visit(node)
+        return self.work(node)
+
+    def work(self, node):
+        if isinstance(node, c_ast.FuncDef):
+            if len(self.insertion_point) > 0 and len(self.assumption_insertion_point) > 0:
+                purge_ids = set()
+                mentioned_ids = set()
+                for parent, child, (new_assign, orig_node) in self.insertion_point:
+                    #to get the right type
+                    new_id = new_assign.lvalue.name
+                    type = get_variable_type(new_id)
+                    #add add intial decl
+                    node.body.block_items.insert(0, c_ast.Decl(name=new_id, quals=[], storage=[], init=None, funcspec=[],
+                       bitsize=None,
+                       type=c_ast.TypeDecl(declname=new_id, quals=[],
+                                           type=c_ast.IdentifierType(type))))
+                    #add the new assignment bindings
+                    index = parent.block_items.index(child)
+                    parent.block_items.insert(index, new_assign)
+                    purge_ids.add(new_id)
+
+                #build map for assumptions
+                used_expr_map = dict()
+                key_str_to_key_set = dict()
+                generator = c_generator.CGenerator()
+                for key, value in self.recusive_collector.recusive_collection.items():
+                    if len(value) < 2:
+                        continue
+                    else:
+                        for v1_index in range(len(value)):
+                            v1 = value[v1_index]
+                            for v2_index in range(v1_index+1, len(value)):
+                                v2 = value[v2_index]
+                                if v1 != v2:
+                                    critical_1, cons_1, primses_1 = v1
+                                    critical_2, cons_2, primses_2 = v2
+                                    if (str(critical_1) == str(critical_2)):
+                                        continue
+                                    index = 0
+                                    primses_exp = None
+                                    current_exp = primses_exp
+                                    while (index < len(primses_1)):
+                                        expr_1 = primses_1[index]
+                                        expr_2 = primses_2[index]
+                                        if str(expr_1) != str(expr_2):
+                                            actual_expr_1 = c_ast.ID(name = cons_1 + "_input_" + str(index))
+                                            actual_expr_2 = c_ast.ID(name = cons_2 + "_input_" + str(index))
+                                            if current_exp is None:
+                                                primses_exp = c_ast.BinaryOp(op='&&',left=c_ast.BinaryOp("==", left=actual_expr_1, right=actual_expr_2),right=None)
+                                                current_exp = primses_exp
+                                            else:
+                                                new_primses_exp = c_ast.BinaryOp(op='&&',left=c_ast.BinaryOp("==", left=actual_expr_1, right=actual_expr_2),right=None)
+                                                current_exp.right = new_primses_exp
+                                                current_exp = new_primses_exp
+                                        index+=1
+
+                                    #work on consequence
+                                    if (primses_exp is not None):
+                                        current_exp.right = constant_one()
+                                        conclusion = c_ast.BinaryOp(op='==', left=c_ast.ID(name=cons_1), right=c_ast.ID(name=cons_2))
+                                        implication = c_ast.BinaryOp(op='||', left=c_ast.UnaryOp(op='!',expr=primses_exp), right=conclusion)
+                                    else:
+                                        implication = c_ast.BinaryOp(op='==', left=c_ast.ID(name=cons_1), right=c_ast.ID(name=cons_2))
+
+                                    assumption = c_ast.FuncCall(name= c_ast.ID(name= "__VERIFIER_assume"),args=c_ast.ExprList(exprs=[implication]))
+                                    #this print is for debug only
+                                    print(generator.visit(assumption))
+
+                                    key_set = {critical_1, critical_2}
+                                    key_set_str = str(key_set)
+                                    key_str_to_key_set[key_set_str] = key_set
+                                    strange_value = used_expr_map.get(key_set_str,[])
+                                    strange_value.append(assumption)
+                                    used_expr_map[key_set_str] = strange_value
+
+                #for parent, child, exprs in self.assumption_insertion_point:
+                for (parent, child, exprs) in self.assumption_insertion_point:
+                    for key_set_str, values in used_expr_map.items():
+                        key_set = key_str_to_key_set.get(key_set_str)
+                        # test if we should include the assumptions
+                        expr_str = generator.visit(exprs)
+                        should_visit = False
+                        for key in key_set:
+                            if key in expr_str:
+                                should_visit = True
+                            else:
+                                should_visit = False
+                                break
+                        if should_visit:
+                            index = parent.block_items.index(child)
+                            for assumption in values:
+                                parent.block_items.insert(index, assumption)
+
+                #finally, purge everything
+                if len(purge_ids) > 0:
+                    func_string = generator.visit(node)
+                    for purge_id in purge_ids:
+                        func_string = func_string.replace(purge_id+"()", purge_id)
+                    parser = c_parser.CParser()
+                    new_func = parser.parse(func_string)
+                    return new_func.ext[0]
+
+        return node
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def visit_Assignment(self, node):
+        if isinstance(node, c_ast.Assignment):
+            if node.lvalue is not None:
+                if isinstance(node.lvalue, c_ast.ID):
+                    name = node.lvalue.name
+                    if name.endswith("_old") or name.endswith("_new"):
+                        results = self.recusive_collector.check(node.rvalue, node.lvalue.name)
+                        # need to create variable bindings
+                        if len(results) > 0:
+                            c_parent, c_node = self.immedimate_insertion_point(node)
+                            for result in results:
+                                self.insertion_point.append((c_parent, c_node, result))
+
+            self.generic_visit(node)
+
+    def visit_Decl(self, node):
+        if isinstance(node, c_ast.Decl):
+            name = node.name
+            if name.endswith("_old") or name.endswith("_new"):
+                if node.init is not None:
+                    if isinstance(node.init, c_ast.ID):
+                        results = self.recusive_collector.check(node.init, node.name)
+                        if len(results) > 0:
+                            c_parent, c_node = self.immedimate_insertion_point(node)
+                            for result in results:
+                                self.insertion_point.append((c_parent, c_node, result))
+            self.generic_visit(node)
+
+    def visit_FuncCall(self,node):
+        if isinstance(node, c_ast.FuncCall):
+            exprs = node.args
+            if node.name.name == "assert":
+                parent, node = self.immedimate_insertion_point(node)
+                self.assumption_insertion_point.append((parent, node, exprs))
+
+    def immedimate_insertion_point(self, node):
+        parent = node
+        while not isinstance(parent, c_ast.Compound):
+            node = parent
+            parent = self.parent_child[parent]
+
+        return parent, node
+
+    def generic_visit(self, node):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+        for c in node:
+            self.parent_child[c] = node
+            self.visit(c)
+
+
+class RecusiveTokenCollector(c_ast.NodeVisitor):
+
+    def __init__(self):
+        self.recusive_collection = dict()
+        self.critical_ID = None
+        self.index = 0
+        self.bindings = []
+
+    def check(self, node, critical_ID):
+        self.bindings = []
+        self.critical_ID = critical_ID
+        self.visit(node)
+        self.critical_ID = None
+        return self.bindings
+
+
+    def visit_FuncCall(self,node):
+        if isinstance(node, c_ast.FuncCall):
+            if (node.name.name.startswith(RecursiveCallSiteRenamer.rename_prefix)):
+                funcName = node.name.name
+                collection = self.recusive_collection.get(funcName, None)
+                if (collection is None):
+                    self.recusive_collection[funcName] = []
+                id = c_ast.ID(name=RecursionAnalyzer.GENERIC_REC_RETURN_NAME + str(self.index))
+                self.recusive_collection[funcName].append((self.critical_ID, id.name, node.args.exprs))
+                new_assginment = c_ast.Assignment(op='=', lvalue=id, rvalue=copy.deepcopy(node))
+                self.bindings.append((new_assginment, node))
+                #record the value of input variable! since it can be modified later
+                input_index = 0
+                for input_node in node.args.exprs:
+                    new_id = c_ast.ID(name= id.name + "_input_" + str(input_index))
+                    new_assginment = c_ast.Assignment(op='=', lvalue=new_id, rvalue=copy.deepcopy(input_node))
+                    self.bindings.append((new_assginment, node))
+                    input_index+=1
+                self.index+=1
+            self.generic_visit(node)
+            #now replace the function invoc with a generic variable
+            if (node.name.name.startswith(RecursiveCallSiteRenamer.rename_prefix)):
+                node.name.name = id.name
+                node.args.exprs= []
 
 
 
