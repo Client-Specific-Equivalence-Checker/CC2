@@ -1,7 +1,9 @@
 import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast, c_parser
+from pycparser_fake_libc import directory
 from CC2 import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser, validator
+from CC2.visitor import *
 import copy
 import re
 import sys
@@ -227,6 +229,7 @@ def main():
         base_lib_file, client_seq, _, _, _, _, client_name = merge_files (path_old, path_new, args.client, args.lib)
         MSCs = []
         total_solving_time = 0.0
+
         #if not use_eq_checker:
         #    return eq_oracle_interface.check_equivlence
         #concurrent MLC checking
@@ -753,16 +756,16 @@ def write_out_generalizible_lib(merged_file, filename, should_copy = True, preco
     if merged_lib.decl.type.args is None:
         merged_lib.decl.type.args = c_ast.ParamList([])
     for old_node in old_nodes:
-        merged_lib.decl.type.args.params.append(c_ast.Decl(name=old_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname=old_node.name, quals=[], type=c_ast.IdentifierType(get_type(old_node)))))
+        merged_lib.decl.type.args.params.append(c_ast.Decl(name=old_node.name, quals=[], storage=[], init=None, funcspec=[], align=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname=old_node.name, quals=[], align=[], type=c_ast.IdentifierType(get_type(old_node)))))
         merged_lib.body.block_items.remove(old_node)
         merged_lib.body.block_items.insert(0, c_ast.Assignment(op='=', lvalue=c_ast.ID(name=old_node.name),
                                                                   rvalue=constant_zero()))
 
     for new_node in new_nodes:
         merged_lib.decl.type.args.params.append(
-            c_ast.Decl(name=new_node.name, quals=[], storage=[], init=None, funcspec=[], bitsize=None,
-                       type=c_ast.TypeDecl(declname=new_node.name, quals=[], type=c_ast.IdentifierType(get_type(new_node)))))
+            c_ast.Decl(name=new_node.name, quals=[], storage=[], align=[], init=None, funcspec=[], bitsize=None,
+                       type=c_ast.TypeDecl(declname=new_node.name, quals=[], align=[], type=c_ast.IdentifierType(get_type(new_node)))))
         merged_lib.body.block_items.remove(new_node)
         merged_lib.body.block_items.insert(0, c_ast.Assignment(op='=', lvalue=c_ast.ID(name=new_node.name),
                                                                   rvalue=constant_zero()))
@@ -828,19 +831,7 @@ class LastVisitor(c_ast.NodeVisitor):
 
 
 
-class FuncDefVisitor(c_ast.NodeVisitor):
-    def __init__(self, target, prefix=False):
-        self.target = target
-        self.container = None
-        self.prefix = prefix
 
-    def visit_FuncDef(self, node):
-        if (self.container is None and node.decl.name == self.target):
-            self.container = node
-            return
-        elif (self.prefix and ( node.decl.name == self.target + "_old" or node.decl.name == self.target + "_new") ):
-            self.container = node
-            return
 '''
 Version and Rename touched variables
 '''
@@ -875,15 +866,6 @@ class IDRenameVisitor(c_ast.NodeVisitor):
                         tnode.name = (tnode.name+"_"+ self.version)
 
 
-class DeclHunter(c_ast.NodeVisitor):
-    def __init__(self, target):
-        self.container = {}
-        self.target = target
-
-    def visit_Decl(self, node):
-        if isinstance(node, c_ast.Decl):
-            if node.name in self.target:
-                self.container[node.name] = copy.deepcopy(node.type)
 
 
 '''
@@ -1401,8 +1383,8 @@ def add_new_declares (node, signatures):
                 init_value = c_ast.ID(name=name)
             else:
                 init_value = None
-            node.block_items.insert(0, c_ast.Decl(name=new_name, quals=[], storage=[], init=init_value, funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname=new_name, quals=[], type=new_type)));
+            node.block_items.insert(0, c_ast.Decl(name=new_name, quals=[], storage=[], init=init_value, align=[], funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname=new_name, align=[], quals=[], type=new_type)));
 
 
     syn = DataSynVisitor(target_map)
@@ -1734,12 +1716,12 @@ def merge_libs(old_lib, new_lib):
 
     for i in range(ret_num):
         old_lib.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_{}_old".format(i), quals=[], storage=[], init=constant_zero(), funcspec=[],
-                                                      bitsize=None,
-                                                      type=c_ast.TypeDecl(declname="CLEVER_ret_{}_old".format(i), quals=[],
+                                                      bitsize=None, align=[],
+                                                      type=c_ast.TypeDecl(declname="CLEVER_ret_{}_old".format(i), quals=[], align=[],
                                                                           type=c_ast.IdentifierType(['int']))))
         new_lib.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_{}_new".format(i), quals=[], storage=[], init=constant_zero(), funcspec=[],
-                                                      bitsize=None,
-                                                      type=c_ast.TypeDecl(declname="CLEVER_ret_{}_new".format(i), quals=[],
+                                                      bitsize=None, align=[],
+                                                      type=c_ast.TypeDecl(declname="CLEVER_ret_{}_new".format(i), quals=[], align=[],
                                                                           type=c_ast.IdentifierType(['int']))))
     merged_ast = merge(old_lib.body, new_lib.body)
 
@@ -1751,12 +1733,13 @@ def merge_libs(old_lib, new_lib):
 
 def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     global type_dict
+    cpp_args = r'-I{}'.format(directory)
     old_ast = parse_file(path_old, use_cpp=True,
             cpp_path='gcc',
-            cpp_args=['-E', r'-Iutils/fake_libc_include'])
+            cpp_args=['-E', cpp_args])
     new_ast = parse_file(path_new,use_cpp=True,
             cpp_path='gcc',
-            cpp_args=['-E', r'-Iutils/fake_libc_include'])
+            cpp_args=['-E', cpp_args])
     #now look for lib from both versions
 
     #generator = c_generator.CGenerator()
@@ -1796,25 +1779,25 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
 
     #convert returns into assignment
     r_types = get_type(old_lib_node)
-    r_type = r_types[0]
-    ret_v = ReturnHuntVisitor(r_type, "CLEVER_ret_{}_old", single_return=True)
+
+    ret_v = ReturnHuntVisitor(r_types, "CLEVER_ret_{}_old", single_return=True)
     ret_v.visit(old_lib_node, None)
-    old_lib_node.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_0_old", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="CLEVER_ret_0_old", quals=[], type=c_ast.IdentifierType(r_types))))
+    old_lib_node.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_0_old", quals=[], storage=[], init=constant_zero(), align=[], funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname="CLEVER_ret_0_old", align=[], quals=[], type=c_ast.IdentifierType(r_types))))
     r_types = get_type(new_lib_node)
-    r_type = r_types[0]
-    ret_v = ReturnHuntVisitor(r_type, "CLEVER_ret_{}_new", single_return=True)
+    ret_v = ReturnHuntVisitor(r_types, "CLEVER_ret_{}_new", single_return=True)
     ret_v.visit(new_lib_node, None)
-    new_lib_node.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_0_new", quals=[], storage=[], init=constant_zero(), funcspec=[], bitsize=None,
-                                                       type=c_ast.TypeDecl(declname="CLEVER_ret_0_new", quals=[], type=c_ast.IdentifierType(r_types))))
+    new_lib_node.body.block_items.insert(0, c_ast.Decl(name="CLEVER_ret_0_new", quals=[], storage=[], init=constant_zero(), align=[], funcspec=[], bitsize=None,
+                                                       type=c_ast.TypeDecl(declname="CLEVER_ret_0_new", quals=[], align=[], type=c_ast.IdentifierType(r_types))))
 
     merged_ast = merge(old_lib_node.body, new_lib_node.body)
-
+    print(c_generator.CGenerator().visit(merged_ast))
     add_new_declares(merged_ast, new_lib_node.decl.type.args)
+    print(c_generator.CGenerator().visit(merged_ast))
     merged_lib = paste_header_with_body(new_lib_node, merged_ast)
 
     generator = c_generator.CGenerator()
-
+    print(generator.visit(merged_lib))
     if (lib_eq_assetion):
         merged_ast.block_items.append(c_ast.FuncCall(name = c_ast.ID(name = 'assert'), args= c_ast.BinaryOp(op='==',left= c_ast.ID(name="CLEVER_ret_0_old"),
                                                                                                             right=c_ast.ID(name="CLEVER_ret_0_new") )))
@@ -1860,7 +1843,7 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
     changed_clients = client_context_encapsulator.analyze_client(client_node, lib)
     type_dict=DTPV.type_dict
 
-    client_index = 0;
+    client_index = 0
     for i in range ( len(changed_clients)):
         node_object = changed_clients[i]
         while (node_object is not None and not node_object.processed):
@@ -1868,8 +1851,9 @@ def merge_files (path_old, path_new, client, lib ,lib_eq_assetion=True):
             print("client " + str(client_index + 1))
             print(generator.visit(node_object.node))
             if (node_object is not None and node_object.node != node_object.lib_node):
+                print(generator.visit(old_lib_copy))
+                print(generator.visit(new_lib_copy))
                 node_object.lib_node = version_merge_lib(node_object.lib_node, lib, old_lib_copy, new_lib_copy, ult =uitlity_class)
-                #print(generator.visit(node_object.lib_node))
             #print ()
             node_object = node_object.parent
             client_index+=1
@@ -1948,12 +1932,7 @@ class lib_invoc_renamer(c_ast.NodeVisitor):
                 if node.name.name == self.lib:
                     node.name.name += ('_'+self.version)
 
-def function_rename(function_node, name):
-    if isinstance(function_node, c_ast.FuncDef):
-        renamed_type = function_node.decl.type
-        while not isinstance(renamed_type, c_ast.TypeDecl):
-            renamed_type = renamed_type.type
-        renamed_type.declname = name
+
 
 def get_type(function_node):
     if isinstance(function_node, c_ast.FuncDef):
@@ -1965,26 +1944,6 @@ def get_type(function_node):
     return copy.deepcopy(fun_type.names)
 
 
-class DateTypeVisitor(c_ast.NodeVisitor):
-
-    def __init__(self):
-        self.type_dict={}
-
-    def visit_Decl(self, node):
-        if isinstance(node, c_ast.Decl):
-            type = node.type
-            while (type is not None):
-                if isinstance(type, c_ast.FuncDecl):
-                    if type.args is not None:
-                        self.visit(type.args)
-                if isinstance(type, c_ast.IdentifierType):
-                    self.type_dict[node.name] = type.names
-                    break
-                else:
-                    try:
-                        type = type.type
-                    except:
-                        break
 
 
 

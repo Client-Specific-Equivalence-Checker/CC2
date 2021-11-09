@@ -16,13 +16,15 @@ def analyze_client(client_node, lib):
     CFV.visit(client_node)
     return CFV.leaves
 
-def get_type(name):
+def get_type(name, t=None):
     global type_dict
-    type = type_dict.get(name, None)
+    if t is None:
+        t = type_dict
+    type = t.get(name, None)
     if type is not None:
         return type
     elif name.endswith("_old") or name.endswith("_new"):
-        type = type_dict.get(name[:-4], None)
+        type = t.get(name[:-4], None)
         if type is not None:
             return type
 
@@ -81,9 +83,9 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
         new_func.body.block_items.append(copy.deepcopy(func))
         for missing_def in DUV.missing_define:
             new_func.decl.type.args.params.append(
-                                                c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
+                                                c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[], align=[],
                                                            bitsize=None,
-                                                           type=c_ast.TypeDecl(declname=missing_def, quals=[],
+                                                           type=c_ast.TypeDecl(declname=missing_def, quals=[], align=[],
                                                                                type=c_ast.IdentifierType(['int']))))
 
             if missing_def in DUV.value_changed:
@@ -137,8 +139,8 @@ def complete_functions(func_object, client_template, lib, is_MLCCheker =True):
             for missing_def in DUV.missing_define:
                 new_func.decl.type.args.params.append(
                     c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
-                               bitsize=None,
-                               type=c_ast.TypeDecl(declname=missing_def, quals=[],
+                               bitsize=None, align=[],
+                               type=c_ast.TypeDecl(declname=missing_def, quals=[], align=[],
                                                    type=c_ast.IdentifierType(get_type(missing_def)))))
 
                 if missing_def in DUV.value_changed:
