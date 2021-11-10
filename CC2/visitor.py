@@ -162,6 +162,8 @@ class HierachyNode():
         self.parent = parent
         self.refined_node = None
         self.new_defines =[]
+        self.verified = False
+        self.result = False
 
     def prune(self):
         if self.type == "call":
@@ -246,7 +248,7 @@ class HierachyNode():
     def prepare_func(self, type_info):
         for c in self.children:
             c.prepare_func(type_info)
-        missing_defs, value_changed = find_missing_def(self.node)
+        missing_defs, value_changed, define = find_missing_def(self.node)
         refined_node =deepcopy(self.node)
         new_define  = []
         new_returns = []
@@ -408,7 +410,7 @@ class DateTypeVisitor(c_ast.NodeVisitor):
 def find_missing_def(node):
     d = DUVisitor()
     d.visit(node)
-    return d.missing_define, d.value_changed
+    return d.missing_define, d.value_changed, d.define
 
 def wrap_body_with_header(body_node):
     function_header = deepcopy(template_function)

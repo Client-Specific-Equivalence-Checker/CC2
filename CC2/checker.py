@@ -896,6 +896,7 @@ class DataSynVisitor(c_ast.NodeVisitor):
         self.update_map = updateMap
         self.parent_child = {}
         self.toupdate ={}
+        self.add_decls = []
 
     def reset(self):
         self.toupdate = {}
@@ -917,6 +918,10 @@ class DataSynVisitor(c_ast.NodeVisitor):
             if (key_parent is not None and isinstance(key_parent, c_ast.Compound)):
                 child_index = key_parent.block_items.index(child)
                 key_parent.block_items.insert(child_index+1, value)
+        for node, parent, new_decls in self.add_decls:
+            assert isinstance(parent, c_ast.Compound)
+            index = parent.block_items.index(node)
+            parent.block_items = parent.block_items[:index+1] +new_decls + parent.block_items[index+1:]
 
     def visit_Assignment(self, node, parent, index):
         if node.rvalue is not None and not isinstance(node.rvalue, c_ast.ID):
@@ -940,6 +945,19 @@ class DataSynVisitor(c_ast.NodeVisitor):
                 for target in update_targets:
                     new_init = c_ast.Assignment(op='=', lvalue=c_ast.ID(name=target), rvalue=node.init)
                     node.init = new_init
+            else:
+                #add declare
+                new_decls = []
+                for target in update_targets:
+                    new_type = get_type(node)
+                    new_decl = c_ast.Decl(name=target, quals=[], storage=[], init=c_ast.ID(name=node.name), align=[], funcspec=[],
+                                                    bitsize=None,
+                                                    type=c_ast.TypeDecl(declname=target, align=[], quals=[],
+                                                                 type=c_ast.IdentifierType(new_type)))
+                    new_decls.append(new_decl)
+                self.add_decls.append((node, self.parent_child[node], new_decls))
+
+
 
     def visit_UnaryOp(self, node, parent, index):
         if isinstance(node, c_ast.UnaryOp):

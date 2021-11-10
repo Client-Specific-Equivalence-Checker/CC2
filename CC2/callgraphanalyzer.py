@@ -1,7 +1,7 @@
 from pycparser import parse_file, c_generator, c_ast, c_parser
 from pycparser_fake_libc import directory
 from CC2.visitor import *
-from CC2.checker import merge, DataSynVisitor
+from CC2.checker import merge, DataSynVisitor, merge_libs
 from copy import deepcopy
 
 class CallGraph():
@@ -33,6 +33,9 @@ class CallingNode():
         self.merged = None
         self.callee = set()
         self.caller = set()
+        self.hierarchy = None
+        self.verified = False
+        self.result = False
 
     def add_caller(self, caller):
         self.caller.add(caller)
@@ -67,25 +70,26 @@ def slice_dependencies(callgraph, lib_name):
 
 
 
-def callAnalyzer(lib_name, client_name, file_ast):
+def callAnalyzer(lib_name, client_name, file_ast, new_ast):
     #lib = find_def(file_ast,lib_name)
     #client = find_def(file_ast, client_name)
     all_func_defs = find_all_def(file_ast)
+    new_lib = find_def(new_ast, lib_name)
     lib = all_func_defs.get(lib_name, None)
     assert lib is not None
     client = all_func_defs.get(client_name, None)
     assert client is not None
 
-    type_info = search_types(file_ast)
 
     callgraph = CallGraph()
     analyze_calls(all_func_defs, callgraph)
     #recursively walk up the the calling context, BFS
     filtered = slice_dependencies(callgraph, lib_name)
-    create_alt_versions_versions(callgraph, all_func_defs,  filtered, lib_name = lib_name)
-    print(callgraph)
+    create_alt_versions_versions(callgraph, all_func_defs,  filtered, new_lib, lib_name = lib_name)
+    create_task(callgraph, file_ast, lib_name)
 
-def create_alt_versions_versions(callgraph, all_func_defs, explored, lib_name = ""):
+
+def create_alt_versions_versions(callgraph, all_func_defs, explored, new_lib, lib_name = ""):
     vr = Verison_Renamer(explored)
     for func in explored:
         func_node = all_func_defs.get(func, None)
@@ -94,13 +98,7 @@ def create_alt_versions_versions(callgraph, all_func_defs, explored, lib_name = 
         call_node = callgraph.fetch(func)
         assert call_node is not None
 
-        vr.suffix = "_old"
-        call_node.old_ver = deepcopy(func_node)
-        vr.visit(call_node.old_ver)
 
-        vr.suffix = "_new"
-        call_node.new_ver = deepcopy(func_node)
-        vr.visit(call_node.new_ver)
 
         if lib_name != func:
             hn = analyze_function_hierarchy(func_node, explored)
@@ -108,6 +106,27 @@ def create_alt_versions_versions(callgraph, all_func_defs, explored, lib_name = 
             type_info = search_types(func_node)
             merge_version_hierarchy(hn, explored, type_info)
 
+            vr.suffix = "_old"
+            call_node.old_ver = deepcopy(func_node)
+            vr.visit(call_node.old_ver)
+
+            vr.suffix = "_new"
+            call_node.new_ver = deepcopy(func_node)
+            vr.visit(call_node.new_ver)
+
+        else:
+            vr.suffix = "_old"
+            call_node.old_ver = deepcopy(func_node)
+            vr.visit(call_node.old_ver)
+
+            vr.suffix = "_new"
+            call_node.new_ver = deepcopy(new_lib)
+            vr.visit(call_node.new_ver)
+        '''
+        else:
+            merged_lib, ret_num = merge_libs(deepcopy(func_node), new_lib)
+            print(c_generator.CGenerator().visit(merged_lib))
+        '''
         #merged_body = merge(deepcopy(call_node.old_ver.body), deepcopy(call_node.new_ver.body))
         #print(c_generator.CGenerator().visit(merged_body))
         #print(c_generator.CGenerator().visit(call_node.old_ver))
@@ -139,7 +158,7 @@ def version_and_merge(node, filters):
     return merged
 
 def add_declartions(merged, type_info, hn):
-    missing_defs, value_changed = find_missing_def(merged)
+    missing_defs, value_changed, define = find_missing_def(merged)
     def_rename = dict()
     for md in missing_defs:
         if md.endswith("_old") or md.endswith("_new"):
@@ -150,12 +169,14 @@ def add_declartions(merged, type_info, hn):
                 def_rename[original_name] = [md]
 
     for key, values in def_rename.items():
-        new_type = get_type(key, type_info)
-        for var_name in values:
-            merged.block_items.insert(0, c_ast.Decl(name=var_name, quals=[], storage=[], init=c_ast.ID(name=key), align=[], funcspec=[],
-                                                    bitsize=None,
-                                                    type=c_ast.TypeDecl(declname=var_name, align=[], quals=[],
-                                                                        type=c_ast.IdentifierType(new_type))))
+        if key not in define:
+            new_type = get_type(key, type_info)
+            for var_name in values:
+                merged.block_items.insert(0, c_ast.Decl(name=var_name, quals=[], storage=[], init=c_ast.ID(name=key), align=[], funcspec=[],
+                                                        bitsize=None,
+                                                        type=c_ast.TypeDecl(declname=var_name, align=[], quals=[],
+                                                                            type=c_ast.IdentifierType(new_type))))
+
     merged.block_items = hn.new_defines + merged.block_items
     #print(c_generator.CGenerator().visit(merged))
     if len(def_rename) > 0:
@@ -177,11 +198,70 @@ def convert_ret_into_verification(node):
     if (isinstance(node, c_ast.Compound)):
         node.block_items += asserts
 
+def verify(task):
+    return False
+
+def check_MLC( hn, file_ast):
+    if hn.verified:
+        return hn.result
 
 
+
+    res = not (hn.children == [])
+    for c in hn.children:
+        res = res and check_MLC(c, file_ast)
+
+    if not res:
+        # base case, now create the verification task and verify it
+        file_ast.ext.append(hn.refined_node)
+        # call verifier
+        print("please verifiy")
+        print(c_generator.CGenerator().visit(file_ast))
+        hn.result = verify(file_ast)
+        hn.verified = True
+        file_ast.ext.pop()
+        return hn.result
+    else:
+        hn.result = res
+        hn.verified = True
+        return res
+
+
+
+
+def check_eq(callgraph, calling_node, file_ast):
+
+    if calling_node.verified:
+        return
+    else:
+        escalate = calling_node.hierarchy is None
+        if calling_node.hierarchy is not None:
+            result = check_MLC(calling_node.hierarchy, file_ast)
+            calling_node.verified = True
+            calling_node.result = result
+            escalate = not (result)
+        if escalate:
+            if len(calling_node.caller) == 0:
+                return False
+            for caller in calling_node.caller:
+                caller_node = callgraph.fetch(caller)
+                check_eq(callgraph, caller_node, file_ast)
+
+def create_task(callgraph, file_ast, lib_name):
+    altered = deepcopy(file_ast)
+    new_def = []
+    for n in callgraph.nodes:
+        node = callgraph.fetch(n)
+        new_def.append(node.old_ver)
+        new_def.append(node.new_ver)
+    altered.ext += new_def
+
+    lib_node = callgraph.fetch(lib_name)
+    return check_eq(callgraph, lib_node, altered)
 
 
 
 if __name__ == "__main__":
-    fi = load("old.c")
-    callAnalyzer("lib", "client", fi)
+    old = load("old.c")
+    new = load("new.c")
+    callAnalyzer("ulADD_AlignOps_us_us", "usADD_us_usp_gen", old, new)
