@@ -6,8 +6,8 @@ import shlex
 
 from pycparser import parse_file, c_generator, c_ast, c_parser
 from pycparser_fake_libc import directory
-from CC2.visitor import *
-from CC2.checker import merge, DataSynVisitor, merge_libs
+from visitor import *
+from checker import merge, DataSynVisitor, merge_libs
 from copy import deepcopy
 
 class CallGraph():

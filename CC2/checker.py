@@ -2,8 +2,8 @@ import argparse
 from os import path
 from pycparser import parse_file, c_generator, c_ast, c_parser
 from pycparser_fake_libc import directory
-from CC2 import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser, validator
-from CC2.visitor import *
+import cex_parser, generalizer, client_context_encapsulator, seahorn_cex_parser, klee_cex_parser, validator
+from visitor import *
 import copy
 import re
 import sys

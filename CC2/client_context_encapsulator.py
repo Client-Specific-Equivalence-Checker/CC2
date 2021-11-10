@@ -1,5 +1,5 @@
 from pycparser import c_ast
-from CC2 import checker
+import checker
 import copy
 is_MLCCheker = True
 
