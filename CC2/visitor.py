@@ -4,7 +4,7 @@ from copy import deepcopy
 
 
 function_def_namespace = dict()
-template_function = c_parser.CParser().parse( "int main(){}").ext[0]
+template_function = c_parser.CParser().parse( "void test(){}").ext[0]
 
 
 def load(file_name):
@@ -414,9 +414,20 @@ def find_missing_def(node):
     d.visit(node)
     return d.missing_define, d.value_changed, d.define
 
-def wrap_body_with_header(body_node):
+def set_paramters(func_node, new_args):
+    assert isinstance(func_node, c_ast.FuncDef)
+    decl = func_node.decl
+    while not isinstance(decl, c_ast.FuncDecl):
+        decl = decl.type
+
+    decl.args = c_ast.ParamList(params=new_args)
+
+def wrap_body_with_header(body_node, hn):
     function_header = deepcopy(template_function)
+
     function_header.body = body_node
+    if hn.new_defines != []:
+        set_paramters(function_header, hn.new_defines)
     return function_header
 
 
@@ -616,4 +627,61 @@ class ReturnHunter(c_ast.NodeVisitor):
 
 
 
+def convert_return(node, type_info):
+    a = ReturnToAssign(type_info)
+    a.visit(node)
+    a.update(node)
 
+
+class ReturnToAssign(c_ast.NodeVisitor):
+
+    def __init__(self, return_type):
+        self.replacement = []
+        self.parent_child =dict()
+        self.return_name = "CLEVER_RET"
+        self.return_type = return_type
+
+    def update(self, node):
+        #first add the declartion of the return
+        if self.replacement != []:
+            body = []
+            if isinstance(node, c_ast.FuncDef):
+                body = node.body.block_items
+            elif isinstance(node, c_ast.Compound):
+                body = node.block_items
+            body.insert(0, c_ast.Decl(name=self.return_name, quals=[], storage=[], init=None, funcspec=[],
+                               bitsize=None,  align=[],
+                               type=c_ast.TypeDecl(declname=self.return_name, quals=[], align=[],
+                                                   type=c_ast.IdentifierType(self.return_type))))
+
+            body.append(c_ast.Return(c_ast.ID(name=self.return_name)))
+            #now go through all updates:
+            for old, p, new in self.replacement:
+                if isinstance(p, c_ast.Compound):
+                    index = p.block_items.index(old)
+                    p.block_items[index] = new
+                else:
+                    replace_object(p, old, new)
+
+
+    def visit_Return(self, node):
+        if isinstance(node, c_ast.Return):
+            new_node = c_ast.Assignment(op='=', lvalue=c_ast.ID(self.return_name), rvalue=node.expr)
+            self.replacement.append((node, self.parent_child[node], new_node))
+
+    def generic_visit(self, node):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+        for c in node:
+            self.parent_child[c] = node
+            self.visit(c)
+
+
+def replace_object(parent, old, new):
+    attr_names= dir(parent)
+    for attr_name in attr_names:
+        attr = getattr(parent, attr_name)
+        if attr is not None and attr == old:
+            setattr(parent, attr_name, new)
+            return

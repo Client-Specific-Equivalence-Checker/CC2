@@ -112,7 +112,8 @@ def create_alt_versions_versions(callgraph, all_func_defs, explored, new_lib, li
             hn = analyze_function_hierarchy(func_node, explored)
             call_node.hierarchy = hn
             type_info = search_types(func_node)
-            merge_version_hierarchy(hn, explored, type_info)
+            ret_type = get_func_type(func_node)
+            merge_version_hierarchy(hn, explored, type_info, ret_type)
 
             vr.suffix = "_old"
             call_node.old_ver = deepcopy(func_node)
@@ -140,19 +141,22 @@ def create_alt_versions_versions(callgraph, all_func_defs, explored, new_lib, li
         #print(c_generator.CGenerator().visit(call_node.old_ver))
         #print(c_generator.CGenerator().visit(call_node.new_ver))
 
-def merge_version_hierarchy(hn, filters, type_info):
+def merge_version_hierarchy(hn, filters, type_info, ret_type):
     assert isinstance(hn, HierachyNode)
     for c in hn.children:
-        merge_version_hierarchy(c, filters, type_info)
-    merged = version_and_merge(hn.refined_node, filters)
+        merge_version_hierarchy(c, filters, type_info, ret_type)
+    merged = version_and_merge(hn.refined_node, filters, ret_type)
     add_declartions(merged, type_info, hn)
     convert_ret_into_verification(merged)
     wipe_returns(merged)
-    hn.refined_node = wrap_body_with_header(merged)
+    hn.refined_node = wrap_body_with_header(merged, hn)
     print(c_generator.CGenerator().visit(hn.refined_node))
 
-def version_and_merge(node, filters):
+def version_and_merge(node, filters, ret_type):
     assert isinstance(node, c_ast.Compound)
+    node = deepcopy(node)
+    convert_return(node,ret_type)
+    #convert returns into assignment
     new_node = deepcopy(node)
     old_node = deepcopy(node)
 
@@ -185,7 +189,7 @@ def add_declartions(merged, type_info, hn):
                                                         type=c_ast.TypeDecl(declname=var_name, align=[], quals=[],
                                                                             type=c_ast.IdentifierType(new_type))))
 
-    merged.block_items = hn.new_defines + merged.block_items
+    #merged.block_items = hn.new_defines + merged.block_items
     #print(c_generator.CGenerator().visit(merged))
     if len(def_rename) > 0:
         syn = DataSynVisitor(def_rename)
@@ -206,6 +210,7 @@ def convert_ret_into_verification(node):
     if (isinstance(node, c_ast.Compound)):
         node.block_items += asserts
 
+
 def verify(task, sourcefile = "temp.c", timeout = 5000):
     with open(sourcefile, 'w') as file:
         file.write(c_generator.CGenerator().visit(task))
@@ -213,7 +218,7 @@ def verify(task, sourcefile = "temp.c", timeout = 5000):
 
 
     args = shlex.split(
-        "cbmc %s --unwinding-assertions --slice-formula --smt2 --stack-trace --verbosity 5" % (
+        "cbmc %s --unwinding-assertions --slice-formula --smt2 --stack-trace --verbosity 5 -function test" % (
             sourcefile))
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
@@ -228,6 +233,7 @@ def verify(task, sourcefile = "temp.c", timeout = 5000):
         clean = line.decode("utf-8").rstrip()
         case_match = re.search('\[(.+\.assertion\..+)\].+FAILURE', clean)
         if failed_assertion is None and case_match:
+            print(out.decode("utf-8") )
             return False
 
     return True
@@ -235,8 +241,6 @@ def verify(task, sourcefile = "temp.c", timeout = 5000):
 def check_MLC( hn, file_ast):
     if hn.verified:
         return hn.result
-
-
 
     res = not (hn.children == [])
     for c in hn.children:
@@ -300,6 +304,15 @@ def create_task(callgraph, file_ast, lib_name):
     lib_node = callgraph.fetch(lib_name)
     return check_eq(callgraph, lib_node, altered)
 
+
+def get_func_type(function_node):
+    if isinstance(function_node, c_ast.FuncDef):
+        fun_type = function_node.decl.type
+    else:
+        fun_type = function_node.type
+    while not isinstance(fun_type, c_ast.IdentifierType):
+        fun_type = fun_type.type
+    return deepcopy(fun_type.names)
 
 
 if __name__ == "__main__":
