@@ -1,3 +1,8 @@
+import io
+import re
+import subprocess
+import shlex
+
 from pycparser import parse_file, c_generator, c_ast, c_parser
 from pycparser_fake_libc import directory
 from CC2.visitor import *
@@ -86,8 +91,11 @@ def callAnalyzer(lib_name, client_name, file_ast, new_ast):
     #recursively walk up the the calling context, BFS
     filtered = slice_dependencies(callgraph, lib_name)
     create_alt_versions_versions(callgraph, all_func_defs,  filtered, new_lib, lib_name = lib_name)
-    create_task(callgraph, file_ast, lib_name)
-
+    verification_res = create_task(callgraph, file_ast, lib_name)
+    if verification_res:
+        print("EQ")
+    else:
+        print ("NEQ")
 
 def create_alt_versions_versions(callgraph, all_func_defs, explored, new_lib, lib_name = ""):
     vr = Verison_Renamer(explored)
@@ -198,8 +206,31 @@ def convert_ret_into_verification(node):
     if (isinstance(node, c_ast.Compound)):
         node.block_items += asserts
 
-def verify(task):
-    return False
+def verify(task, sourcefile = "temp.c", timeout = 5000):
+    with open(sourcefile, 'w') as file:
+        file.write(c_generator.CGenerator().visit(task))
+
+
+
+    args = shlex.split(
+        "cbmc %s --unwinding-assertions --slice-formula --smt2 --stack-trace --verbosity 5" % (
+            sourcefile))
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        print("CBMCTO")
+        proc.kill()
+        return False
+    result = io.BytesIO(out)
+    failed_assertion = None
+    for line in result:
+        clean = line.decode("utf-8").rstrip()
+        case_match = re.search('\[(.+\.assertion\..+)\].+FAILURE', clean)
+        if failed_assertion is None and case_match:
+            return False
+
+    return True
 
 def check_MLC( hn, file_ast):
     if hn.verified:
@@ -215,8 +246,8 @@ def check_MLC( hn, file_ast):
         # base case, now create the verification task and verify it
         file_ast.ext.append(hn.refined_node)
         # call verifier
-        print("please verifiy")
-        print(c_generator.CGenerator().visit(file_ast))
+        #print("please verifiy")
+        #print(c_generator.CGenerator().visit(file_ast))
         hn.result = verify(file_ast)
         hn.verified = True
         file_ast.ext.pop()
@@ -242,18 +273,28 @@ def check_eq(callgraph, calling_node, file_ast):
             escalate = not (result)
         if escalate:
             if len(calling_node.caller) == 0:
+                print("Verification failed, NEQ")
                 return False
+            res = True
             for caller in calling_node.caller:
                 caller_node = callgraph.fetch(caller)
-                check_eq(callgraph, caller_node, file_ast)
+                res =  res and check_eq(callgraph, caller_node, file_ast)
+
+            return res
+        else:
+            return True
+
+
 
 def create_task(callgraph, file_ast, lib_name):
     altered = deepcopy(file_ast)
     new_def = []
     for n in callgraph.nodes:
         node = callgraph.fetch(n)
-        new_def.append(node.old_ver)
-        new_def.append(node.new_ver)
+        if node.old_ver is not None:
+            new_def.append(node.old_ver)
+        if node.new_ver is not None:
+            new_def.append(node.new_ver)
     altered.ext += new_def
 
     lib_node = callgraph.fetch(lib_name)

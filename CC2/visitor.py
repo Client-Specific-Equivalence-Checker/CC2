@@ -95,13 +95,15 @@ class Verison_Renamer(c_ast.NodeVisitor):
         self.suffix = suffix
 
     def visit_FuncDef(self, node):
-        new_name = node.decl.name + self.suffix
-        function_rename(node, new_name)
+        if node.decl.name in self.filter:
+            new_name = node.decl.name + self.suffix
+            function_rename(node, new_name)
         for c in node:
             self.visit(c)
 
     def visit_FuncCall(self, node):
-        node.name.name += self.suffix
+        if node.name.name in self.filter:
+            node.name.name += self.suffix
         for c in node:
             self.visit(c)
 

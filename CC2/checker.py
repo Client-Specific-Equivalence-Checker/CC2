@@ -942,20 +942,17 @@ class DataSynVisitor(c_ast.NodeVisitor):
             if node.init is not None:
                 if not isinstance(node.init, c_ast.ID):
                     self.visit(node.init, node, 1)
-                for target in update_targets:
-                    new_init = c_ast.Assignment(op='=', lvalue=c_ast.ID(name=target), rvalue=node.init)
-                    node.init = new_init
-            else:
-                #add declare
-                new_decls = []
-                for target in update_targets:
-                    new_type = get_type(node)
-                    new_decl = c_ast.Decl(name=target, quals=[], storage=[], init=c_ast.ID(name=node.name), align=[], funcspec=[],
-                                                    bitsize=None,
-                                                    type=c_ast.TypeDecl(declname=target, align=[], quals=[],
-                                                                 type=c_ast.IdentifierType(new_type)))
-                    new_decls.append(new_decl)
-                self.add_decls.append((node, self.parent_child[node], new_decls))
+
+            #add declare
+            new_decls = []
+            for target in update_targets:
+                new_type = get_type(node)
+                new_decl = c_ast.Decl(name=target, quals=[], storage=[], init=c_ast.ID(name=node.name), align=[], funcspec=[],
+                                                bitsize=None,
+                                                type=c_ast.TypeDecl(declname=target, align=[], quals=[],
+                                                             type=c_ast.IdentifierType(new_type)))
+                new_decls.append(new_decl)
+            self.add_decls.append((node, self.parent_child[node], new_decls))
 
 
 
