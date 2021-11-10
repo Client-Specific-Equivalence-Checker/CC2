@@ -166,6 +166,7 @@ class HierachyNode():
         self.new_defines =[]
         self.verified = False
         self.result = False
+        self.comments = ""
 
     def prune(self):
         if self.type == "call":

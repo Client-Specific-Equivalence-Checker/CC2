@@ -1,3 +1,4 @@
+import argparse
 import io
 import re
 import subprocess
@@ -211,7 +212,7 @@ def convert_ret_into_verification(node):
         node.block_items += asserts
 
 
-def verify(task, sourcefile = "temp.c", timeout = 5000):
+def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
     with open(sourcefile, 'w') as file:
         file.write(c_generator.CGenerator().visit(task))
 
@@ -233,9 +234,10 @@ def verify(task, sourcefile = "temp.c", timeout = 5000):
         clean = line.decode("utf-8").rstrip()
         case_match = re.search('\[(.+\.assertion\..+)\].+FAILURE', clean)
         if failed_assertion is None and case_match:
-            print(out.decode("utf-8") )
+            hn.comments = out.decode("utf-8")
             return False
 
+    hn.comments = "EQ"
     return True
 
 def check_MLC( hn, file_ast):
@@ -252,7 +254,7 @@ def check_MLC( hn, file_ast):
         # call verifier
         #print("please verifiy")
         #print(c_generator.CGenerator().visit(file_ast))
-        hn.result = verify(file_ast)
+        hn.result = verify(file_ast, hn)
         hn.verified = True
         file_ast.ext.pop()
         return hn.result
@@ -267,26 +269,30 @@ def check_MLC( hn, file_ast):
 def check_eq(callgraph, calling_node, file_ast):
 
     if calling_node.verified:
-        return
+        return calling_node.result
     else:
         escalate = calling_node.hierarchy is None
         if calling_node.hierarchy is not None:
-            result = check_MLC(calling_node.hierarchy, file_ast)
+            local_result = check_MLC(calling_node.hierarchy, file_ast)
             calling_node.verified = True
-            calling_node.result = result
-            escalate = not (result)
+            calling_node.result = local_result
+            escalate = not (local_result)
+            if local_result:
+                print("EQ on {}".format(calling_node))
+            else:
+                print("NEQ on {}".format(calling_node))
+                print(calling_node.hierarchy.comments)
+
+        res = True
         if escalate:
             if len(calling_node.caller) == 0:
                 print("Verification failed, NEQ")
                 return False
-            res = True
             for caller in calling_node.caller:
                 caller_node = callgraph.fetch(caller)
                 res =  res and check_eq(callgraph, caller_node, file_ast)
 
-            return res
-        else:
-            return True
+        return res
 
 
 
@@ -302,8 +308,9 @@ def create_task(callgraph, file_ast, lib_name):
     altered.ext += new_def
 
     lib_node = callgraph.fetch(lib_name)
-    return check_eq(callgraph, lib_node, altered)
 
+    res = check_eq(callgraph, lib_node, altered)
+    return res
 
 def get_func_type(function_node):
     if isinstance(function_node, c_ast.FuncDef):
@@ -316,6 +323,13 @@ def get_func_type(function_node):
 
 
 if __name__ == "__main__":
-    old = load("old.c")
-    new = load("new.c")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--new', type=str, dest='new', default="new.c", help="new source file")
+    parser.add_argument('--old', type=str, dest='old', default="old.c", help="old source file")
+    parser.add_argument('--client', type=str, dest='client', default="client", help="client function name")
+    parser.add_argument('--lib', type=str, dest='lib', default="lib", help="lib function name")
+    args = parser.parse_args()
+    old = load(args.old)
+    new = load(args.new)
+    callAnalyzer(args.lib, args.client, old, new)
     callAnalyzer("ulADD_AlignOps_us_us", "usADD_us_usp_gen", old, new)
