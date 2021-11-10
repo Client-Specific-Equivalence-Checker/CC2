@@ -92,7 +92,7 @@ def callAnalyzer(lib_name, client_name, file_ast, new_ast):
     #recursively walk up the the calling context, BFS
     filtered = slice_dependencies(callgraph, lib_name)
     create_alt_versions_versions(callgraph, all_func_defs,  filtered, new_lib, lib_name = lib_name)
-    verification_res = create_task(callgraph, file_ast, lib_name)
+    verification_res = create_task(callgraph, file_ast, lib_name, client_name)
     if verification_res:
         print("EQ")
     else:
@@ -247,6 +247,8 @@ def check_MLC( hn, file_ast):
     res = not (hn.children == [])
     for c in hn.children:
         res = res and check_MLC(c, file_ast)
+        if not res:
+            break
 
     if not res:
         # base case, now create the verification task and verify it
@@ -296,15 +298,24 @@ def check_eq(callgraph, calling_node, file_ast):
 
 
 
-def create_task(callgraph, file_ast, lib_name):
+def create_task(callgraph, file_ast, lib_name, client_name):
     altered = deepcopy(file_ast)
+    #filter out the client
+    defs = altered.ext
+    for i in range(len(defs)):
+        if isinstance(defs[i], c_ast.FuncDef) and defs[i].decl.name == client_name:
+            altered.ext = defs[:i] + defs[i+1:]
+            break
+
+
     new_def = []
     for n in callgraph.nodes:
-        node = callgraph.fetch(n)
-        if node.old_ver is not None:
-            new_def.append(node.old_ver)
-        if node.new_ver is not None:
-            new_def.append(node.new_ver)
+        if n != client_name:
+            node = callgraph.fetch(n)
+            if node.old_ver is not None:
+                new_def.append(node.old_ver)
+            if node.new_ver is not None:
+                new_def.append(node.new_ver)
     altered.ext += new_def
 
     lib_node = callgraph.fetch(lib_name)
@@ -327,9 +338,9 @@ if __name__ == "__main__":
     parser.add_argument('--new', type=str, dest='new', default="new.c", help="new source file")
     parser.add_argument('--old', type=str, dest='old', default="old.c", help="old source file")
     parser.add_argument('--client', type=str, dest='client', default="client", help="client function name")
-    parser.add_argument('--lib', type=str, dest='lib', default="lib", help="lib function name")
+    parser.add_argument('--lib', type=str, dest='lib', default="ulADD_AlignOps_us_us", help="lib function name")
     args = parser.parse_args()
     old = load(args.old)
     new = load(args.new)
     callAnalyzer(args.lib, args.client, old, new)
-    callAnalyzer("ulADD_AlignOps_us_us", "usADD_us_usp_gen", old, new)
+    #callAnalyzer("ulADD_AlignOps_us_us", "usADD_us_usp_gen", old, new)

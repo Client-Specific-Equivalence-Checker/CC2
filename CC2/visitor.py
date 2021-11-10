@@ -280,7 +280,10 @@ class HierachyNode():
         elif isinstance(refined_node, c_ast.FuncDef):
             new_node = refined_node.body
             new_node.block_items =  new_node.block_items + new_returns
-            self.new_defines = refined_node.decl.type.args.params + new_define
+            if refined_node.decl.type.args is not None:
+                self.new_defines = refined_node.decl.type.args.params + new_define
+            else:
+                self.new_defines = new_define
         else:
             new_node = refined_node
         #print(c_generator.CGenerator().visit(new_node))
