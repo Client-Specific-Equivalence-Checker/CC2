@@ -59,19 +59,32 @@ def analyze_calls(func_defs, callgraph):
             callgraph.add_call_relation(func_name, callee_name)
 
 
-def slice_dependencies(callgraph, lib_name):
+def slice_dependencies(callgraph, lib_name, client_name):
     explored = set()
     queue = [lib_name]
     while len(queue) > 0:
         current = queue.pop(0)
         c_node = callgraph.fetch(current)
-        for caller in c_node.caller:
-            if caller not in explored:
-                queue.append(caller)
-                print("{} <- {}".format(current, caller))
+        if current != client_name:
+            for caller in c_node.caller:
+                if caller not in explored:
+                    queue.append(caller)
+                    print("{} <- {}".format(current, caller))
         explored.add(current)
 
-    return explored
+    #now a backward pass from the client
+    new_explored = set()
+    queue = [client_name]
+    while len(queue) > 0:
+        current = queue.pop(0)
+        c_node = callgraph.fetch(current)
+        if current != lib_name:
+            for callee in c_node.callee:
+                if callee in explored:
+                    queue.append(callee)
+        new_explored.add(current)
+
+    return new_explored
 
 
 
@@ -90,13 +103,13 @@ def callAnalyzer(lib_name, client_name, file_ast, new_ast):
     callgraph = CallGraph()
     analyze_calls(all_func_defs, callgraph)
     #recursively walk up the the calling context, BFS
-    filtered = slice_dependencies(callgraph, lib_name)
+    filtered = slice_dependencies(callgraph, lib_name, client_name)
     create_alt_versions_versions(callgraph, all_func_defs,  filtered, new_lib, lib_name = lib_name)
     verification_res = create_task(callgraph, file_ast, lib_name, client_name)
     if verification_res:
-        print("EQ")
+        print("CLEVER EQ")
     else:
-        print ("NEQ")
+        print ("CLEVER NEQ")
 
 def create_alt_versions_versions(callgraph, all_func_defs, explored, new_lib, lib_name = ""):
     vr = Verison_Renamer(explored)
@@ -287,7 +300,10 @@ def check_eq(callgraph, calling_node, file_ast):
             calling_node.verified = True
             calling_node.result = local_result
             escalate = not (local_result)
-            print("{} result: {}".format(calling_node, calling_node.hierarchy.comments.replace("CLEVERTEST", str(calling_node))))
+            if not local_result:
+                print("{} result: {}".format(calling_node, calling_node.hierarchy.comments.replace("CLEVERTEST", str(calling_node))))
+            else:
+                print("{} result: EQ".format(calling_node))
 
         res = True
         if escalate:
@@ -328,6 +344,7 @@ def create_task(callgraph, file_ast, lib_name, client_name):
     lib_node = callgraph.fetch(lib_name)
 
     res = check_eq(callgraph, lib_node, altered)
+
     return res
 
 def get_func_type(function_node):
