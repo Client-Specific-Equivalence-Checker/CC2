@@ -176,7 +176,7 @@ def merge_version_hierarchy(hn, filters, type_info, ret_type):
     convert_ret_into_verification(merged)
     wipe_returns(merged)
     hn.refined_node = wrap_body_with_header(merged, hn)
-    print(c_generator.CGenerator().visit(hn.refined_node))
+    #print(c_generator.CGenerator().visit(hn.refined_node))
 
 def version_and_merge(node, filters, ret_type):
     assert isinstance(node, c_ast.Compound)
@@ -294,6 +294,8 @@ def check_MLC( hn, file_ast):
         # call verifier
         #print("please verifiy")
         #print(c_generator.CGenerator().visit(file_ast))
+        print("now consider context:")
+        print(c_generator.CGenerator().visit(hn.refined_node))
         hn.result = verify(file_ast, hn)
         hn.verified = True
         file_ast.ext.pop()
@@ -313,6 +315,8 @@ def check_eq(callgraph, calling_node, file_ast):
     else:
         escalate = calling_node.hierarchy is None
         if calling_node.hierarchy is not None:
+            print("now consider function")
+            print(str(calling_node))
             local_result = check_MLC(calling_node.hierarchy, file_ast)
             calling_node.verified = True
             calling_node.result = local_result

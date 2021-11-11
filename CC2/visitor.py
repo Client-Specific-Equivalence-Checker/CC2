@@ -309,7 +309,7 @@ class  HierarchyMaker(c_ast.NodeVisitor):
     def visit_For(self, node):
         new_node = HierachyNode(node, "loop", self.root)
         self.root.children.append(new_node)
-        HM = HierarchyMaker(self.libs, node)
+        HM = HierarchyMaker(self.libs, new_node)
         for c in node:
             HM.visit(c)
 
