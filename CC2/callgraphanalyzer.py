@@ -219,7 +219,7 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
 
 
     args = shlex.split(
-        "cbmc %s --unwinding-assertions --slice-formula --smt2 --stack-trace --verbosity 5 -function test" % (
+        "cbmc %s --unwinding-assertions --slice-formula --smt2 --stack-trace --verbosity 5 -function CLEVERTEST" % (
             sourcefile))
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
@@ -230,15 +230,23 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
         return False
     result = io.BytesIO(out)
     failed_assertion = None
+    is_succeed = False
     for line in result:
         clean = line.decode("utf-8").rstrip()
         case_match = re.search('\[(.+\.assertion\..+)\].+FAILURE', clean)
         if failed_assertion is None and case_match:
             hn.comments = out.decode("utf-8")
             return False
-
-    hn.comments = "EQ"
-    return True
+        else:
+            case_match_success = re.search('\[(.+\.assertion\..+)\].+SUCCESS', clean)
+            if case_match_success:
+                is_succeed = True
+    if is_succeed:
+        hn.comments = "EQ"
+        return True
+    else:
+        hn.comments = "Unknown"
+        return False
 
 def check_MLC( hn, file_ast):
     if hn.verified:
@@ -279,20 +287,19 @@ def check_eq(callgraph, calling_node, file_ast):
             calling_node.verified = True
             calling_node.result = local_result
             escalate = not (local_result)
-            if local_result:
-                print("EQ on {}".format(calling_node))
-            else:
-                print("NEQ on {}".format(calling_node))
-                print(calling_node.hierarchy.comments)
+            print("{} result: {}".format(calling_node, calling_node.hierarchy.comments.replace("CLEVERTEST", str(calling_node))))
 
         res = True
         if escalate:
             if len(calling_node.caller) == 0:
-                print("Verification failed, NEQ")
+                #print("Verification failed, NEQ")
                 return False
             for caller in calling_node.caller:
                 caller_node = callgraph.fetch(caller)
-                res =  res and check_eq(callgraph, caller_node, file_ast)
+                local_res =check_eq(callgraph, caller_node, file_ast)
+                res =  res and local_res
+                if not res:
+                    break
 
         return res
 

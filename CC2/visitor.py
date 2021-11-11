@@ -4,7 +4,7 @@ from copy import deepcopy
 
 
 function_def_namespace = dict()
-template_function = c_parser.CParser().parse( "void test(){}").ext[0]
+template_function = c_parser.CParser().parse( "int CLEVERTEST(){}").ext[0]
 
 
 def load(file_name):
@@ -643,6 +643,8 @@ class ReturnToAssign(c_ast.NodeVisitor):
         self.replacement = []
         self.parent_child =dict()
         self.return_name = "CLEVER_RET"
+        if return_type == ['void']:
+            return_type[0] = 'int'
         self.return_type = return_type
 
     def update(self, node):
