@@ -84,6 +84,18 @@ def slice_dependencies(callgraph, lib_name, client_name):
                     queue.append(callee)
         new_explored.add(current)
 
+    #now perform slicing:
+    for name, node in callgraph.nodes.items():
+        new_caller = set()
+        for caller in node.caller:
+            if caller in new_explored:
+                new_caller.add(caller)
+        node.caller = new_caller
+        new_callee = set()
+        for callee in node.callee:
+            if callee in new_explored:
+                new_callee.add(callee)
+        node.callee = new_callee
     return new_explored
 
 
