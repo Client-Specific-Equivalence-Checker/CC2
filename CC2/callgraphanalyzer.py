@@ -253,9 +253,10 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
         print("CBMCTO")
         proc.kill()
         return False
-    result = io.BytesIO(out)
-    failed_assertion = None
-    is_succeed = False
+    result = out.decode("utf-8")
+    is_failed = "VERIFICATION FAILED" in result
+    is_succeed = "VERIFICATION SUCCESSFUL" in result
+    '''
     for line in result:
         clean = line.decode("utf-8").rstrip()
         case_match = re.search('\[(.+\.assertion\..+)\].+FAILURE', clean)
@@ -266,9 +267,13 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
             case_match_success = re.search('\[(.+\.assertion\..+)\].+SUCCESS', clean)
             if case_match_success:
                 is_succeed = True
+    '''
     if is_succeed:
         hn.comments = "EQ"
         return True
+    elif is_failed:
+        hn.comments = result
+        return False
     else:
         hn.comments = "Unknown"
         return False
