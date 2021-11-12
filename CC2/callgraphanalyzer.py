@@ -105,6 +105,7 @@ def callAnalyzer(lib_name, client_name, file_ast, new_ast):
     #lib = find_def(file_ast,lib_name)
     #client = find_def(file_ast, client_name)
     all_func_defs = find_all_def(file_ast)
+    preprocess(file_ast, all_func_defs.keys())
     new_lib = find_def(new_ast, lib_name)
     lib = all_func_defs.get(lib_name, None)
     assert lib is not None
@@ -254,6 +255,20 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
         proc.kill()
         return False
     result = out.decode("utf-8")
+    #if result contains nothing, then try to do it without smt2
+    if result == "":
+        args = shlex.split(
+            "cbmc %s --unwinding-assertions --slice-formula --stack-trace --verbosity 5 -function CLEVERTEST" % (
+                sourcefile))
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            out, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            print("CBMCTO")
+            proc.kill()
+            return False
+        result = out.decode("utf-8")
+
     is_failed = "VERIFICATION FAILED" in result
     is_succeed = "VERIFICATION SUCCESSFUL" in result
     '''

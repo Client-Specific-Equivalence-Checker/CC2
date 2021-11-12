@@ -692,3 +692,24 @@ def replace_object(parent, old, new):
         if attr is not None and attr == old:
             setattr(parent, attr_name, new)
             return
+
+def preprocess(node, defs):
+    a = Uninterrupting_visitor(defs)
+    a.visit(node)
+
+class Uninterrupting_visitor(c_ast.NodeVisitor):
+
+    def __init__(self, all_defs):
+        self.defs = all_defs
+
+
+    def visit_FuncCall(self, node):
+        if isinstance(node, c_ast.FuncCall):
+            if isinstance(node.name, c_ast.ID):
+                if node.name.name not in self.defs:
+                    node.name.name = "__CPROVER_uninterpreted__" + node.name.name
+
+        for c in node:
+            self.visit(c)
+
+
