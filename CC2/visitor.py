@@ -82,7 +82,8 @@ class FuncCall_visitor(c_ast.NodeVisitor):
                 self.visit(c)
 
     def visit_FuncCall(self, node):
-        self.result.append(node.name.name)
+        if isinstance(node.name, c_ast.ID):
+            self.result.append(node.name.name)
         for c in node:
             self.visit(c)
 
