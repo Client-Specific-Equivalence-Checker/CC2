@@ -10,6 +10,8 @@ from visitor import *
 from checker import merge, DataSynVisitor, merge_libs
 from copy import deepcopy
 
+global_type = dict()
+
 class CallGraph():
     def __init__(self):
         self.nodes = dict()
@@ -102,8 +104,10 @@ def slice_dependencies(callgraph, lib_name, client_name):
 
 
 def callAnalyzer(lib_name, client_name, file_ast, new_ast):
+    global global_type
     #lib = find_def(file_ast,lib_name)
     #client = find_def(file_ast, client_name)
+    global_type = search_types(file_ast)
     all_func_defs = find_all_def(file_ast)
     preprocess(file_ast, all_func_defs.keys())
     new_lib = find_def(new_ast, lib_name)
@@ -133,12 +137,10 @@ def create_alt_versions_versions(callgraph, all_func_defs, explored, new_lib, li
         call_node = callgraph.fetch(func)
         assert call_node is not None
 
-
-
         if lib_name != func:
-            hn = analyze_function_hierarchy(func_node, explored)
+            hn = analyze_function_hierarchy(func_node, explored, global_type)
             call_node.hierarchy = hn
-            type_info = search_types(func_node)
+            type_info = {**global_type, **search_types(func_node)}
             ret_type = get_func_type(func_node)
             merge_version_hierarchy(hn, explored, type_info, ret_type)
 
@@ -197,7 +199,7 @@ def version_and_merge(node, filters, ret_type):
     return merged
 
 def add_declartions(merged, type_info, hn):
-    missing_defs, value_changed, define = find_missing_def(merged)
+    missing_defs, value_changed, define, pointer_type = find_missing_def(merged)
     def_rename = dict()
     for md in missing_defs:
         if md.endswith("_old") or md.endswith("_new"):
@@ -209,12 +211,16 @@ def add_declartions(merged, type_info, hn):
 
     for key, values in def_rename.items():
         if key not in define:
-            new_type = get_type(key, type_info)
+            new_type = get_type(key, type_info, pointer_type)
             for var_name in values:
+                if var_name != key:
+                    new_type = rename_type(var_name, new_type)
                 merged.block_items.insert(0, c_ast.Decl(name=var_name, quals=[], storage=[], init=c_ast.ID(name=key), align=[], funcspec=[],
                                                         bitsize=None,
-                                                        type=c_ast.TypeDecl(declname=var_name, align=[], quals=[],
-                                                                            type=c_ast.IdentifierType(new_type))))
+                                                        type=new_type))
+
+                if isinstance(new_type, c_ast.PtrDecl) or isinstance(new_type, c_ast.ArrayDecl):
+                    merged.block_items.insert(0, assume_not_null(c_ast.ID(var_name)))
 
     #merged.block_items = hn.new_defines + merged.block_items
     #print(c_generator.CGenerator().visit(merged))
@@ -245,7 +251,7 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
 
 
     args = shlex.split(
-        "cbmc %s --unwinding-assertions --slice-formula --smt2 --stack-trace --verbosity 5 -function CLEVERTEST" % (
+        "cbmc %s --unwinding-assertions --slice-formula --smt2 --arrays-uf-always --stack-trace --verbosity 5 -function CLEVERTEST" % (
             sourcefile))
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
@@ -258,7 +264,7 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
     #if result contains nothing, then try to do it without smt2
     if result == "":
         args = shlex.split(
-            "cbmc %s --unwinding-assertions --slice-formula --stack-trace --verbosity 5 -function CLEVERTEST" % (
+            "cbmc %s --unwinding-assertions --slice-formula --arrays-uf-always --stack-trace --verbosity 5 -function CLEVERTEST" % (
                 sourcefile))
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:

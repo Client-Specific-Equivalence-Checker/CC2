@@ -6,6 +6,11 @@ from copy import deepcopy
 function_def_namespace = dict()
 template_function = c_parser.CParser().parse( "int CLEVERTEST(){}").ext[0]
 
+assumeID = c_ast.ID(name="__CPROVER_assume")
+
+def assume_not_null(name):
+    return c_ast.FuncCall(name=assumeID, args=c_ast.BinaryOp(op="!=", left=name, right=c_ast.Constant(type=int, value=0)))
+
 
 def load(file_name):
     cpp_args = r'-I{}'.format(directory)
@@ -252,35 +257,39 @@ class HierachyNode():
     def prepare_func(self, type_info):
         for c in self.children:
             c.prepare_func(type_info)
-        missing_defs, value_changed, define = find_missing_def(self.node)
+        missing_defs, value_changed, define, pointer_type = find_missing_def(self.node)
         refined_node =deepcopy(self.node)
         new_define  = []
         new_returns = []
+        new_assumptions = []
         func_ret = is_func_ret(refined_node)
         for missing_def in missing_defs:
+           new_type = get_type(missing_def, type_info, pointer_type)
            new_define.append(c_ast.Decl(name=missing_def, quals=[], storage=[], init=None, funcspec=[],
                            bitsize=None,  align=[],
-                           type=c_ast.TypeDecl(declname=missing_def, quals=[], align=[],
-                                               type=c_ast.IdentifierType(get_type(missing_def, type_info)))))
+                           type=new_type))
+
+           if isinstance(new_type, c_ast.PtrDecl) or isinstance(new_type, c_ast.ArrayDecl):
+               new_assumptions.append(assume_not_null(c_ast.ID(missing_def)))
 
         for changed_name in value_changed:
            if not func_ret and ((changed_name in changed_name) or isinstance(refined_node, c_ast.Compound)):
                new_returns.append(c_ast.Return(c_ast.ID(changed_name)))
 
         if isinstance(refined_node, c_ast.Compound):
-            refined_node.block_items =  refined_node.block_items + new_returns
+            refined_node.block_items =  new_assumptions + refined_node.block_items + new_returns
             new_node = refined_node
             self.new_defines = new_define
         elif isinstance(refined_node, c_ast.While) or isinstance(refined_node, c_ast.For):
             temp_node = c_ast.If(cond=refined_node.cond, iftrue=refined_node.stmt, iffalse=None)
-            new_node =  c_ast.Compound(block_items=  [temp_node] + new_returns)
+            new_node =  c_ast.Compound(block_items=  new_assumptions + [temp_node] + new_returns)
             self.new_defines = new_define
         elif isinstance(refined_node, c_ast.FuncCall):
-            new_node = c_ast.Compound(block_items= [c_ast.Return(refined_node)])
+            new_node = c_ast.Compound(block_items= new_assumptions + [c_ast.Return(refined_node)])
             self.new_defines = new_define
         elif isinstance(refined_node, c_ast.FuncDef):
             new_node = refined_node.body
-            new_node.block_items =  new_node.block_items + new_returns
+            new_node.block_items =  new_assumptions + new_node.block_items + new_returns
             if refined_node.decl.type.args is not None:
                 self.new_defines = refined_node.decl.type.args.params + new_define
             else:
@@ -321,8 +330,11 @@ class  HierarchyMaker(c_ast.NodeVisitor):
         for c in node:
             HM.visit(c)
 
-def analyze_function_hierarchy(func, libs):
-    type_info = search_types(func)
+def analyze_function_hierarchy(func, libs, global_type=None):
+    if global_type is not None:
+        type_info = {**global_type, **search_types(func)}
+    else:
+        type_info = search_types(func)
     hn = HierachyNode(func, "func")
     HM = HierarchyMaker(libs, hn)
     HM.visit(func)
@@ -388,15 +400,38 @@ class LoopHunter(c_ast.NodeVisitor):
         self.res = True
 
 def search_types(node):
-    a = DateTypeVisitor()
+    a = DataTypeVisitor(node)
     a.visit(node)
     return a.type_dict
 
-class DateTypeVisitor(c_ast.NodeVisitor):
+class DataTypeVisitor(c_ast.NodeVisitor):
 
-    def __init__(self):
+    def __init__(self, exception):
         self.type_dict={}
+        self.exception = exception
 
+    def visit_TypeDecl(self, node):
+        if isinstance(node, c_ast.TypeDecl):
+            self.type_dict[node.declname] = deepcopy(node)
+
+    def visit_ArrayDecl(self, node):
+        if isinstance(node, c_ast.ArrayDecl):
+            name = get_typename(node)
+            self.type_dict[name] = deepcopy(node)
+
+    def visit_PtrDecl(self, node):
+        if isinstance(node, c_ast.PtrDecl):
+            name = get_typename(node)
+            self.type_dict[name] = deepcopy(node)
+
+    def visit_FuncDef(self, node):
+        if node == self.exception:
+            for c in node:
+                self.visit(c)
+        else:
+            self.type_dict[node.decl.name] = deepcopy(node.decl.type.type)
+
+    '''
     def visit_Decl(self, node):
         if isinstance(node, c_ast.Decl):
             type = node.type
@@ -404,20 +439,20 @@ class DateTypeVisitor(c_ast.NodeVisitor):
                 if isinstance(type, c_ast.FuncDecl):
                     if type.args is not None:
                         self.visit(type.args)
-                if isinstance(type, c_ast.IdentifierType):
-                    self.type_dict[node.name] = type.names
+                if  isinstance(type, c_ast.ArrayDecl) or isinstance(type, c_ast.IdentifierType):
+                    self.type_dict[node.name] = deepcopy(node)
                     break
                 else:
                     try:
                         type = type.type
                     except:
                         break
-
+        '''
 
 def find_missing_def(node):
     d = DUVisitor()
     d.visit(node)
-    return d.missing_define, d.value_changed, d.define
+    return d.missing_define, d.value_changed, d.define, d.pointer_type
 
 def set_paramters(func_node, new_args):
     assert isinstance(func_node, c_ast.FuncDef)
@@ -436,10 +471,22 @@ def wrap_body_with_header(body_node, hn):
     return function_header
 
 
+def rename_type(name, type):
+    type =deepcopy(type)
+    og = type
+    while not isinstance(type, c_ast.TypeDecl):
+        type = type.type
+
+    type.declname = name
+    return og
+
+def get_typename(type):
+    while not isinstance(type, c_ast.TypeDecl):
+        type = type.type
+    return type.declname
 
 
-
-def get_type(name, t=None):
+def get_type(name, t=None, pointer_type = None):
     global type_dict
     if t is None:
         t = type_dict
@@ -450,14 +497,18 @@ def get_type(name, t=None):
         type = t.get(name[:-4], None)
         if type is not None:
             return type
-
-    return ['int']
+    if pointer_type is not None and name in pointer_type:
+        type_decl = c_ast.TypeDecl(align=None, declname=name, type= c_ast.IdentifierType(names=['int']), quals=None)
+        return c_ast.ArrayDecl(type = type_decl, dim=None, dim_quals=[])
+    else:
+        return c_ast.TypeDecl(quals=None, align=None, declname=name, type = c_ast.IdentifierType(names=['int']))
 
 class DUVisitor(c_ast.NodeVisitor):
     def __init__(self):
         self.define = set()
         self.missing_define = set()
         self.value_changed = set()
+        self.pointer_type = set()
 
     def check_and_refine(self, use):
         if (use is None):
@@ -471,6 +522,9 @@ class DUVisitor(c_ast.NodeVisitor):
             for use in IDH.container:
                 if use not in self.define and use not in self.missing_define:
                     self.missing_define.add(use)
+                    if use in IDH.pointer_type:
+                        self.pointer_type.add(use)
+
 
 
     def add_to_define(self, target):
@@ -546,10 +600,19 @@ class DUVisitor(c_ast.NodeVisitor):
 class IDhunter(c_ast.NodeVisitor):
     def __init__(self):
         self.container = set()
+        self.pointer_type = set()
 
     def visit_ID(self, node):
         if isinstance(node, c_ast.ID):
             self.container.add(node.name)
+
+    def visit_ArrayRef(self, node):
+        if isinstance(node, c_ast.ArrayRef):
+            n_name = node.name
+            if isinstance(n_name, c_ast.ID):
+                self.pointer_type.add(n_name.name)
+        for c in node:
+            self.visit(c)
 
     def visit_FuncCall(self, node):
         if node.args is not None:
@@ -696,20 +759,43 @@ def replace_object(parent, old, new):
 def preprocess(node, defs):
     a = Uninterrupting_visitor(defs)
     a.visit(node)
+    VoidArgRemover().visit(node)
+
+class VoidArgRemover(c_ast.NodeVisitor):
+
+    def visit_ParamList(self, node):
+        if node.params is not None:
+            if len(node.params) == 1:
+                arg = node.params[0]
+                if isinstance(arg, c_ast.Typename):
+                    if arg.name == None:
+                        node.params = []
+
 
 class Uninterrupting_visitor(c_ast.NodeVisitor):
 
     def __init__(self, all_defs):
         self.defs = all_defs
+        self.convert_to_var = []
+        self.uninterpreted = set()
+        self.parent_child = dict()
 
 
     def visit_FuncCall(self, node):
         if isinstance(node, c_ast.FuncCall):
             if isinstance(node.name, c_ast.ID):
                 if node.name.name not in self.defs:
+                    self.uninterpreted.add(node.name.name)
                     node.name.name = "__CPROVER_uninterpreted__" + node.name.name
 
         for c in node:
+            self.generic_visit(c)
+
+
+    def generic_visit(self, node):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+        for c in node:
+            self.parent_child[c] = node
             self.visit(c)
-
-
