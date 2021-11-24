@@ -913,7 +913,7 @@ class DataSynVisitor(c_ast.NodeVisitor):
             child = key
             while (key_parent is not None and not isinstance(key_parent, c_ast.Compound)):
                 child = key_parent
-                key_parent = self.parent_child.get(key, None)
+                key_parent = self.parent_child.get(child, None)
 
             if (key_parent is not None and isinstance(key_parent, c_ast.Compound)):
                 child_index = key_parent.block_items.index(child)
@@ -934,7 +934,7 @@ class DataSynVisitor(c_ast.NodeVisitor):
                         node.rvalue = copy.deepcopy(node)
                         node.lvalue = c_ast.ID(name=target)
             else:
-                self.visit(node.lvalue, node, 0)
+                self.generic_visit(node.lvalue, node, 0)
 
     def visit_Decl(self, node, parent, index):
         if isinstance(node, c_ast.Decl) and node.name in self.update_map:
@@ -1028,6 +1028,7 @@ class DataSynVisitor(c_ast.NodeVisitor):
         """
         counter = 0
         for c in node:
+            assert c != node
             self.parent_child[c] = node
             self.visit(c, node, counter)
             counter+=1

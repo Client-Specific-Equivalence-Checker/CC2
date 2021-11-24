@@ -121,6 +121,7 @@ def callAnalyzer(lib_name, client_name, file_ast, new_ast):
     analyze_calls(all_func_defs, callgraph)
     #recursively walk up the the calling context, BFS
     filtered = slice_dependencies(callgraph, lib_name, client_name)
+    move_out_funcall(file_ast, filtered, global_type)
     create_alt_versions_versions(callgraph, all_func_defs,  filtered, new_lib, lib_name = lib_name)
     verification_res = create_task(callgraph, file_ast, lib_name, client_name)
     if verification_res:
@@ -174,17 +175,17 @@ def merge_version_hierarchy(hn, filters, type_info, ret_type):
     assert isinstance(hn, HierachyNode)
     for c in hn.children:
         merge_version_hierarchy(c, filters, type_info, ret_type)
-    merged = version_and_merge(hn.refined_node, filters, ret_type)
+    merged = version_and_merge(hn.refined_node, filters, ret_type, type_info)
     add_declartions(merged, type_info, hn)
     convert_ret_into_verification(merged)
     wipe_returns(merged)
     hn.refined_node = wrap_body_with_header(merged, hn)
     #print(c_generator.CGenerator().visit(hn.refined_node))
 
-def version_and_merge(node, filters, ret_type):
+def version_and_merge(node, filters, ret_type, type_info):
     assert isinstance(node, c_ast.Compound)
     node = deepcopy(node)
-    convert_return(node,ret_type)
+    convert_return(node,ret_type, type_info)
     #convert returns into assignment
     new_node = deepcopy(node)
     old_node = deepcopy(node)
@@ -196,7 +197,11 @@ def version_and_merge(node, filters, ret_type):
     vr.visit(old_node)
 
     merged = merge(new_node, old_node)
+    remove_unused_ret(merged)
     return merged
+
+
+
 
 def add_declartions(merged, type_info, hn):
     missing_defs, value_changed, define, pointer_type = find_missing_def(merged)
@@ -251,7 +256,7 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
 
 
     args = shlex.split(
-        "cbmc %s --unwinding-assertions --slice-formula --smt2 --arrays-uf-always --stack-trace --verbosity 5 -function CLEVERTEST" % (
+        "cbmc %s --slice-formula --smt2 --unwind 20 --unwinding-assertions --stack-trace --verbosity 5 -function CLEVERTEST" % (
             sourcefile))
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
@@ -264,7 +269,7 @@ def verify(task, hn, sourcefile = "temp.c", timeout = 5000):
     #if result contains nothing, then try to do it without smt2
     if result == "":
         args = shlex.split(
-            "cbmc %s --unwinding-assertions --slice-formula --arrays-uf-always --stack-trace --verbosity 5 -function CLEVERTEST" % (
+            "cbmc %s  --slice-formula --stack-trace --unwind 20 --unwinding-assertions --verbosity 5 -function CLEVERTEST" % (
                 sourcefile))
         proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:

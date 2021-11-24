@@ -108,7 +108,7 @@ class Verison_Renamer(c_ast.NodeVisitor):
             self.visit(c)
 
     def visit_FuncCall(self, node):
-        if node.name.name in self.filter:
+        if isinstance(node.name, c_ast.ID) and node.name.name in self.filter:
             node.name.name += self.suffix
         for c in node:
             self.visit(c)
@@ -312,9 +312,13 @@ class  HierarchyMaker(c_ast.NodeVisitor):
 
     def visit_FuncCall(self, node):
 
-        if node.name.name in self.libs:
+        if isinstance(node.name, c_ast.ID) and node.name.name in self.libs:
             new_node = HierachyNode(node, "call", self.root)
             self.root.children.append(new_node)
+        else:
+            for c in node:
+                self.visit(c)
+
 
     def visit_For(self, node):
         new_node = HierachyNode(node, "loop", self.root)
@@ -339,7 +343,7 @@ def analyze_function_hierarchy(func, libs, global_type=None):
     HM = HierarchyMaker(libs, hn)
     HM.visit(func)
     hn.prune()
-    hn.optimize_loop()
+    #hn.optimize_loop()
     #hn.print()
     hn.prepare_func(type_info)
     return hn
@@ -695,18 +699,19 @@ class ReturnHunter(c_ast.NodeVisitor):
 
 
 
-def convert_return(node, type_info):
-    a = ReturnToAssign(type_info)
+def convert_return(node, ret_info, type_info):
+    a = ReturnToAssign(ret_info, type_info)
     a.visit(node)
     a.update(node)
 
 
 class ReturnToAssign(c_ast.NodeVisitor):
 
-    def __init__(self, return_type):
+    def __init__(self, return_type, type_info):
         self.replacement = []
+        self.type_info = type_info
         self.parent_child =dict()
-        self.return_name = "CLEVER_RET"
+        self.return_name = "CLEVER_RET_{}"
         if return_type == ['void']:
             return_type[0] = 'int'
         self.return_type = return_type
@@ -719,12 +724,19 @@ class ReturnToAssign(c_ast.NodeVisitor):
                 body = node.body.block_items
             elif isinstance(node, c_ast.Compound):
                 body = node.block_items
-            body.insert(0, c_ast.Decl(name=self.return_name, quals=[], storage=[], init=None, funcspec=[],
-                               bitsize=None,  align=[],
-                               type=c_ast.TypeDecl(declname=self.return_name, quals=[], align=[],
-                                                   type=c_ast.IdentifierType(self.return_type))))
+            for i in range(len(self.replacement)):
+                old, p, new = self.replacement[i]
+                new_type = c_ast.TypeDecl(declname=self.return_name.format(i), quals=[], align=[],
+                                                       type=c_ast.IdentifierType(self.return_type))
+                if isinstance(old, c_ast.Return):
+                    if isinstance(old.expr, c_ast.ID):
+                        new_type = get_type(old.expr.name, self.type_info)
+                        new_type = rename_type(self.return_name.format(i), new_type)
+                body.insert(0, c_ast.Decl(name=self.return_name.format(i), quals=[], storage=[], init=None, funcspec=[],
+                                   bitsize=None,  align=[],
+                                   type= new_type))
 
-            body.append(c_ast.Return(c_ast.ID(name=self.return_name)))
+                body.append(c_ast.Return(c_ast.ID(name=self.return_name.format(i))))
             #now go through all updates:
             for old, p, new in self.replacement:
                 if isinstance(p, c_ast.Compound):
@@ -732,11 +744,12 @@ class ReturnToAssign(c_ast.NodeVisitor):
                     p.block_items[index] = new
                 else:
                     replace_object(p, old, new)
+        self.replacement=[]
 
 
     def visit_Return(self, node):
         if isinstance(node, c_ast.Return):
-            new_node = c_ast.Assignment(op='=', lvalue=c_ast.ID(self.return_name), rvalue=node.expr)
+            new_node = c_ast.Assignment(op='=', lvalue=c_ast.ID(self.return_name.format(len(self.replacement))), rvalue=node.expr)
             self.replacement.append((node, self.parent_child[node], new_node))
 
     def generic_visit(self, node):
@@ -757,8 +770,8 @@ def replace_object(parent, old, new):
             return
 
 def preprocess(node, defs):
-    a = Uninterrupting_visitor(defs)
-    a.visit(node)
+    #a = Uninterrupting_visitor(defs)
+    #a.visit(node)
     VoidArgRemover().visit(node)
 
 class VoidArgRemover(c_ast.NodeVisitor):
@@ -771,6 +784,69 @@ class VoidArgRemover(c_ast.NodeVisitor):
                     if arg.name == None:
                         node.params = []
 
+def move_out_funcall(file, libs, type_info):
+    a = FunCallUnesting(libs)
+    a.visit(file)
+    a.work(type_info)
+
+
+class FunCallUnesting(c_ast.NodeVisitor):
+    def __init__(self, libs):
+        self.libs = libs
+        self.work_list= []
+        self.parent_child = dict()
+
+    def work(self, type_info):
+        temp_index = 0
+        for node, p, child, arg, index in self.work_list:
+            if isinstance(p, c_ast.Compound):
+                if isinstance(arg.name, c_ast.ID):
+                    new_type = get_type(arg.name.name, type_info)
+                    new_name = "temp_var_{}".format(temp_index)
+                    new_type = rename_type(new_name, new_type)
+                    new_declare = c_ast.Decl(name=new_name, quals=[], storage=[], init=arg, funcspec=[],
+                               bitsize=None,  align=[],
+                               type=new_type)
+                    node.args.exprs[index] = c_ast.ID(name=new_name)
+                    func_index = p.block_items.index(child)
+                    p.block_items.insert(func_index, new_declare)
+                    temp_index += 1
+
+
+    def visit_FuncCall(self, node):
+        if isinstance(node, c_ast.FuncCall):
+            if isinstance(node.name, c_ast.ID) and node.name.name in self.libs:
+                if isinstance(node.args, c_ast.ExprList):
+                    exprs = node.args.exprs
+                    for i in range(len(exprs)):
+                        arg = exprs[i]
+                        if isinstance(arg, c_ast.FuncCall):
+                            c_parent, c_child = self.find_compond_parent(node)
+                            self.work_list.append((node, c_parent, c_child, arg, i))
+            else:
+                for c in node:
+                    self.generic_visit(c)
+
+    def find_compond_parent(self, node):
+        current = node
+        child = None
+        while not isinstance(current, c_ast.Compound):
+            parent = self.parent_child.get(current, None)
+            if parent is None:
+                return None, None
+            else:
+                child = current
+                current = parent
+        return current, child
+
+
+    def generic_visit(self, node):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+        for c in node:
+            self.parent_child[c] = node
+            self.visit(c)
 
 class Uninterrupting_visitor(c_ast.NodeVisitor):
 
@@ -791,6 +867,38 @@ class Uninterrupting_visitor(c_ast.NodeVisitor):
         for c in node:
             self.generic_visit(c)
 
+
+    def generic_visit(self, node):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+        for c in node:
+            self.parent_child[c] = node
+            self.visit(c)
+
+def remove_unused_ret(node):
+    a = CLEVER_return_sanitizer()
+    a.visit(node)
+    a.work()
+
+class CLEVER_return_sanitizer(c_ast.NodeVisitor):
+
+    def __init__(self):
+        self.work_list = []
+        self.parent_child = dict()
+
+    def work(self):
+        for node, parent in self.work_list:
+            if isinstance(parent, c_ast.Compound):
+                index = parent.block_items.index(node)
+                parent.block_items = parent.block_items[:index] + parent.block_items[index+1:]
+
+    def visit_Assignment(self, node):
+        if isinstance(node, c_ast.Assignment):
+            if isinstance(node.lvalue, c_ast.ID):
+                id = node.lvalue
+                if id.name.startswith("CLEVER_RET") and not id.name.endswith("old") and not id.name.endswith("new"):
+                    self.work_list.append((node, self.parent_child[node]))
 
     def generic_visit(self, node):
         """ Called if no explicit visitor function exists for a
